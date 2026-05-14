@@ -1,4 +1,3 @@
-KingdomStewardshipPro.jsx
 import React, { useState, useEffect } from 'react';
 
 // ============ CONFIG ============
