@@ -33,44 +33,203 @@ const RED_PALE = '#FFF3F3';
 
 // ============ CATEGORY DATA ============
 const INCOME_CATEGORIES_CHURCH = [
-  'Tithes', 'Offerings', 'Designated Giving', 'Building Fund',
-  'Missions', 'Youth Ministry', 'Benevolence Fund', 'Special Offering',
-  'Donations', 'Memorial Gifts', 'Grants', 'Rental Income',
-  'Investment Income', 'Fundraising', 'Other Income'
+  'Tithes', 'Offerings', 'General Fund Giving', 'Designated Giving',
+  'Building Fund', 'Capital Campaign', 'Missions', 'World Missions',
+  'Local Missions', 'Youth Ministry', 'Children\'s Ministry', 'Women\'s Ministry',
+  'Men\'s Ministry', 'Worship / Music Ministry', 'Outreach',
+  'Benevolence Fund', 'Special Offering', 'Easter Offering', 'Christmas Offering',
+  'Donations', 'Memorial Gifts', 'Pledges Received',
+  'Grants', 'Foundation Grants',
+  'Rental Income', 'Facility Rental',
+  'Investment Income', 'Interest Income',
+  'Fundraising', 'Event Income', 'Bake Sale / Yard Sale',
+  'Book / Resource Sales', 'Tape / Video Sales',
+  'Conference Fees', 'Retreat Fees', 'Camp Fees',
+  'Tuition (Christian School)', 'Daycare Income',
+  'Sunday School Offering', 'Vacation Bible School',
+  'Online Giving', 'Stock / Asset Donations',
+  'Other Income'
 ];
 const INCOME_CATEGORIES_BUSINESS = [
-  'Sales Revenue', 'Service Revenue', 'Consulting', 'Subscriptions',
-  'Product Sales', 'Course Sales', 'Speaking Fees', 'Royalties',
-  'Affiliate Income', 'Sponsorships', 'Grants', 'Rental Income',
-  'Investment Income', 'Interest Income', 'Refunds Received', 'Other Income'
+  'Sales Revenue', 'Service Revenue', 'Consulting Revenue',
+  'Subscription Revenue', 'Product Sales', 'Course Sales',
+  'Coaching Fees', 'Speaking Fees', 'Workshop Fees',
+  'Royalties', 'Affiliate Income', 'Commission Income',
+  'Sponsorships', 'Advertising Income',
+  'Grants', 'Business Grants',
+  'Rental Income', 'Equipment Rental',
+  'Investment Income', 'Interest Income', 'Dividend Income',
+  'Refunds Received', 'Reimbursements',
+  'Tip Income', 'Gratuities',
+  'Online Sales', 'In-Person Sales',
+  'Wholesale Revenue', 'Retail Revenue',
+  'Licensing Income',
+  'Other Income'
 ];
 const INCOME_CATEGORIES_NONPROFIT = [
-  'Donations', 'Grants', 'Memberships', 'Fundraising Events',
-  'Program Fees', 'Sponsorships', 'Government Funding',
-  'Foundation Grants', 'In-Kind Donations', 'Investment Income',
-  'Rental Income', 'Merchandise', 'Other Income'
+  'Individual Donations', 'Corporate Donations',
+  'Grants', 'Government Grants', 'Foundation Grants', 'Private Grants',
+  'Memberships', 'Annual Memberships',
+  'Fundraising Events', 'Gala / Banquet', 'Auction', 'Run / Walk',
+  'Program Fees', 'Service Fees',
+  'Sponsorships', 'Corporate Sponsorships',
+  'Government Funding', 'Federal Funding', 'State Funding',
+  'In-Kind Donations', 'Volunteer Hours',
+  'Investment Income', 'Endowment Income',
+  'Rental Income', 'Facility Rental',
+  'Merchandise', 'Gift Shop',
+  'Tuition Income', 'Class Fees',
+  'Major Gifts', 'Planned Giving / Bequest',
+  'Online Donations',
+  'Other Income'
 ];
 
 const EXPENSE_CATEGORIES = [
-  'Salaries & Wages', 'Payroll Taxes', 'Benefits',
-  'Rent', 'Mortgage', 'Utilities', 'Internet / Phone', 'Insurance',
-  'Office Supplies', 'Software / Subscriptions', 'Equipment',
-  'Banking Fees', 'Professional Services', 'Legal & Accounting',
-  'Marketing & Advertising', 'Printing & Postage',
-  'Travel', 'Meals & Entertainment', 'Vehicle / Mileage',
-  'Maintenance & Repairs', 'Cleaning Services',
-  'Ministry Programs', 'Missions Expenses', 'Benevolence Paid',
-  'Conferences & Training', 'Books & Publications',
-  'Events & Hospitality', 'Curriculum & Resources',
-  'Volunteer Appreciation', 'Worship & Music',
-  'Cost of Goods Sold', 'Inventory',
+  // Payroll
+  'Salaries & Wages', 'Pastor Salary', 'Staff Salary',
+  'Contract Labor / 1099', 'Payroll Taxes', 'Benefits',
+  'Health Insurance (Staff)', 'Retirement / 403b / 401k',
+  // Facility
+  'Rent', 'Mortgage', 'Property Tax',
+  'Utilities', 'Electric', 'Gas', 'Water / Sewer', 'Trash',
+  'Internet / Phone', 'Cell Phones', 'Landline',
+  'Insurance (Property)', 'Insurance (Liability)', 'Insurance (Workers Comp)',
+  'Maintenance & Repairs', 'Cleaning Services', 'Lawn Care / Landscaping',
+  'Pest Control', 'Security',
+  // Office
+  'Office Supplies', 'Software / Subscriptions', 'Computer / Equipment',
+  'Office Furniture', 'Postage / Shipping', 'Printing',
+  // Professional
+  'Banking Fees', 'Bank Charges', 'Credit Card Processing Fees',
+  'Professional Services', 'Legal Fees', 'Accounting / CPA Fees',
+  'Audit Fees', 'Consulting Fees',
+  // Marketing
+  'Marketing & Advertising', 'Website / Hosting', 'Social Media Ads',
+  'Print Advertising', 'Signage',
+  // Travel
+  'Travel', 'Lodging / Hotels', 'Conference Travel',
+  'Meals & Entertainment', 'Vehicle / Mileage', 'Gas / Fuel', 'Vehicle Insurance',
+  'Vehicle Maintenance',
+  // Ministry
+  'Ministry Programs', 'Missions Expenses', 'Missionary Support',
+  'Benevolence Paid', 'Hospitality',
+  'Conferences & Training', 'Continuing Education',
+  'Books & Publications', 'Curriculum & Resources',
+  'Events & Hospitality', 'Special Events',
+  'Volunteer Appreciation', 'Staff Appreciation',
+  'Worship & Music', 'Music Licensing', 'Instruments / Equipment',
+  'Audio / Visual Equipment',
+  'Children\'s Ministry Supplies', 'Youth Ministry Supplies',
+  'Sunday School Materials', 'VBS Supplies',
+  'Communion / Sacrament Supplies', 'Baptismal Supplies',
+  // Business specific
+  'Cost of Goods Sold', 'Inventory', 'Materials',
+  'Shipping & Handling', 'Packaging',
+  'Subscription Services', 'Cloud Storage',
+  // Other
   'Charitable Contributions Made',
-  'Bank Charges', 'Credit Card Processing Fees',
-  'Taxes (other)', 'Licenses & Permits',
-  'Depreciation', 'Other Expenses'
+  'Taxes (other)', 'Licenses & Permits', 'Dues / Memberships',
+  'Bad Debt', 'Depreciation',
+  'Other Expenses'
 ];
 
 const FUND_TYPES = ['General', 'Building', 'Missions', 'Youth', 'Benevolence', 'Memorial', 'Designated', 'Reserve'];
+
+// Smart category guesser from description
+const guessIncomeCategory = (desc, orgType) => {
+  const d = (desc || '').toLowerCase();
+  if (orgType === 'church') {
+    if (/(tithe)/i.test(d)) return 'Tithes';
+    if (/(offering)/i.test(d)) return 'Offerings';
+    if (/(building)/i.test(d)) return 'Building Fund';
+    if (/(mission)/i.test(d)) return 'Missions';
+    if (/(youth)/i.test(d)) return 'Youth Ministry';
+    if (/(children|kids)/i.test(d)) return 'Children\'s Ministry';
+    if (/(women)/i.test(d)) return 'Women\'s Ministry';
+    if (/(benevolence|benevolent)/i.test(d)) return 'Benevolence Fund';
+    if (/(memorial)/i.test(d)) return 'Memorial Gifts';
+    if (/(easter)/i.test(d)) return 'Easter Offering';
+    if (/(christmas)/i.test(d)) return 'Christmas Offering';
+    if (/(pledge)/i.test(d)) return 'Pledges Received';
+    if (/(rent)/i.test(d)) return 'Rental Income';
+    if (/(interest)/i.test(d)) return 'Interest Income';
+    if (/(grant)/i.test(d)) return 'Grants';
+    if (/(online|electronic|ach|paypal|stripe|tithely)/i.test(d)) return 'Online Giving';
+    return 'Offerings';
+  }
+  if (orgType === 'business') {
+    if (/(invoice|payment|sale|product)/i.test(d)) return 'Sales Revenue';
+    if (/(consult|consulting)/i.test(d)) return 'Consulting Revenue';
+    if (/(subscription|monthly|recurring)/i.test(d)) return 'Subscription Revenue';
+    if (/(course|class|training)/i.test(d)) return 'Course Sales';
+    if (/(coach|coaching)/i.test(d)) return 'Coaching Fees';
+    if (/(speak|keynote|workshop)/i.test(d)) return 'Speaking Fees';
+    if (/(rent)/i.test(d)) return 'Rental Income';
+    if (/(interest)/i.test(d)) return 'Interest Income';
+    if (/(refund|return)/i.test(d)) return 'Refunds Received';
+    if (/(tip|gratuity)/i.test(d)) return 'Tip Income';
+    return 'Sales Revenue';
+  }
+  // nonprofit
+  if (/(grant)/i.test(d)) return 'Grants';
+  if (/(member)/i.test(d)) return 'Memberships';
+  if (/(event|gala|auction)/i.test(d)) return 'Fundraising Events';
+  if (/(program)/i.test(d)) return 'Program Fees';
+  if (/(sponsor)/i.test(d)) return 'Sponsorships';
+  return 'Individual Donations';
+};
+
+const guessExpenseCategory = (desc) => {
+  const d = (desc || '').toLowerCase();
+  // Payroll
+  if (/(payroll|salary|wage|paycheck)/i.test(d)) return 'Salaries & Wages';
+  if (/(contract|1099|freelance)/i.test(d)) return 'Contract Labor / 1099';
+  if (/(insurance.*health|health.*insurance)/i.test(d)) return 'Health Insurance (Staff)';
+  // Facility
+  if (/(rent|lease)/i.test(d)) return 'Rent';
+  if (/(mortgage)/i.test(d)) return 'Mortgage';
+  if (/(electric|power)/i.test(d)) return 'Electric';
+  if (/(water|sewer)/i.test(d)) return 'Water / Sewer';
+  if (/(gas\s|natural gas)/i.test(d)) return 'Gas';
+  if (/(internet|wifi|spectrum|comcast|cox)/i.test(d)) return 'Internet / Phone';
+  if (/(phone|verizon|at\&t|t-mobile|cellular)/i.test(d)) return 'Internet / Phone';
+  if (/(clean|janitor)/i.test(d)) return 'Cleaning Services';
+  if (/(lawn|landscape|mow)/i.test(d)) return 'Lawn Care / Landscaping';
+  if (/(repair|maintenance|fix)/i.test(d)) return 'Maintenance & Repairs';
+  // Office
+  if (/(office.*supply|staples|paper)/i.test(d)) return 'Office Supplies';
+  if (/(software|subscription|saas|adobe|microsoft|google|dropbox|zoom)/i.test(d)) return 'Software / Subscriptions';
+  if (/(computer|laptop|monitor|equipment)/i.test(d)) return 'Computer / Equipment';
+  if (/(postage|stamp|usps|fedex|ups|shipping)/i.test(d)) return 'Postage / Shipping';
+  if (/(print)/i.test(d)) return 'Printing';
+  // Banking
+  if (/(bank fee|service charge|monthly fee)/i.test(d)) return 'Banking Fees';
+  if (/(stripe|square|paypal fee|processing)/i.test(d)) return 'Credit Card Processing Fees';
+  // Professional
+  if (/(legal|attorney|lawyer)/i.test(d)) return 'Legal Fees';
+  if (/(cpa|accountant|tax prep)/i.test(d)) return 'Accounting / CPA Fees';
+  // Marketing
+  if (/(facebook|instagram|google ads|advertising|marketing)/i.test(d)) return 'Marketing & Advertising';
+  if (/(website|hosting|domain)/i.test(d)) return 'Website / Hosting';
+  // Travel
+  if (/(hotel|motel|lodging|airbnb)/i.test(d)) return 'Lodging / Hotels';
+  if (/(airline|flight|delta|southwest|united|american airlines)/i.test(d)) return 'Travel';
+  if (/(uber|lyft|taxi|rental car)/i.test(d)) return 'Travel';
+  if (/(restaurant|cafe|coffee|meal)/i.test(d)) return 'Meals & Entertainment';
+  if (/(shell|exxon|chevron|gas station|fuel)/i.test(d)) return 'Gas / Fuel';
+  // Ministry
+  if (/(mission|missionary)/i.test(d)) return 'Missions Expenses';
+  if (/(benevolence|benevolent)/i.test(d)) return 'Benevolence Paid';
+  if (/(conference|convention|seminar)/i.test(d)) return 'Conferences & Training';
+  if (/(book|publication|amazon kindle)/i.test(d)) return 'Books & Publications';
+  if (/(curriculum|lesson|study material)/i.test(d)) return 'Curriculum & Resources';
+  if (/(worship|music|hymn)/i.test(d)) return 'Worship & Music';
+  if (/(audio|visual|microphone|speaker|projector)/i.test(d)) return 'Audio / Visual Equipment';
+  if (/(youth)/i.test(d)) return 'Youth Ministry Supplies';
+  if (/(children|kids)/i.test(d)) return 'Children\'s Ministry Supplies';
+  if (/(license|permit)/i.test(d)) return 'Licenses & Permits';
+  return 'Other Expenses';
+};
 
 const ORG_TYPES = [
   { id: 'church', label: '⛪ Church / Ministry', incomeCategories: INCOME_CATEGORIES_CHURCH, hasFunds: true, hasDonors: true, donorLabel: 'Donors / Members', incomeLabel: 'Giving & Income', termsFor: { income: 'Giving & Income', expense: 'Operating Expenses', net: 'Net Income' } },
@@ -392,6 +551,15 @@ function Dashboard({ user, onLogout }) {
   const [funds, setFunds] = useState([
     { id:'fund_general', name:'General Fund', type:'General', balance:0 }
   ]);
+  const userKey = user?.email ? user.email.toLowerCase().replace(/[^a-z0-9]/g,'_') : 'guest';
+  const [customIncomeCats, setCustomIncomeCats] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`ksp_${userKey}_inc_cats`) || '[]'); } catch { return []; }
+  });
+  const [customExpenseCats, setCustomExpenseCats] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`ksp_${userKey}_exp_cats`) || '[]'); } catch { return []; }
+  });
+  useEffect(() => { try { localStorage.setItem(`ksp_${userKey}_inc_cats`, JSON.stringify(customIncomeCats)); } catch {} }, [customIncomeCats, userKey]);
+  useEffect(() => { try { localStorage.setItem(`ksp_${userKey}_exp_cats`, JSON.stringify(customExpenseCats)); } catch {} }, [customExpenseCats, userKey]);
 
   // Load org config
   useEffect(() => {
@@ -416,7 +584,12 @@ function Dashboard({ user, onLogout }) {
     })();
   }, [user]);
 
-  const orgConfig = ORG_TYPES.find(t => t.id === orgType) || ORG_TYPES[0];
+  const baseOrgConfig = ORG_TYPES.find(t => t.id === orgType) || ORG_TYPES[0];
+  const orgConfig = {
+    ...baseOrgConfig,
+    incomeCategories: [...baseOrgConfig.incomeCategories, ...customIncomeCats],
+    expenseCategories: [...EXPENSE_CATEGORIES, ...customExpenseCats],
+  };
 
   return (
     <div style={{ display:'flex', minHeight:'100vh' }}>
@@ -457,12 +630,12 @@ function Dashboard({ user, onLogout }) {
       {/* Main */}
       <main style={{ flex:1, padding:'2rem', overflow:'auto' }}>
         {tab === 'overview' && <OverviewTab transactions={transactions} donors={donors} funds={funds} orgConfig={orgConfig} />}
-        {tab === 'transactions' && <TransactionsTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} funds={funds} orgConfig={orgConfig} />}
+        {tab === 'transactions' && <TransactionsTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} setDonors={setDonors} funds={funds} orgConfig={orgConfig} />}
         {tab === 'donors' && <DonorsTab user={user} donors={donors} setDonors={setDonors} transactions={transactions} orgConfig={orgConfig} />}
         {tab === 'funds' && orgConfig.hasFunds && <FundsTab user={user} funds={funds} setFunds={setFunds} transactions={transactions} />}
         {tab === 'reports' && <ReportsTab transactions={transactions} orgConfig={orgConfig} />}
         {tab === 'statements' && <StatementsTab user={user} donors={donors} transactions={transactions} orgConfig={orgConfig} orgName={orgName} />}
-        {tab === 'settings' && <SettingsTab user={user} orgName={orgName} setOrgName={setOrgName} orgType={orgType} setOrgType={setOrgType} />}
+        {tab === 'settings' && <SettingsTab user={user} orgName={orgName} setOrgName={setOrgName} orgType={orgType} setOrgType={setOrgType} customIncomeCats={customIncomeCats} setCustomIncomeCats={setCustomIncomeCats} customExpenseCats={customExpenseCats} setCustomExpenseCats={setCustomExpenseCats} />}
       </main>
     </div>
   );
@@ -544,7 +717,7 @@ function StatCard({ label, value, color, sub }) {
 }
 
 // ============ TRANSACTIONS TAB ============
-function TransactionsTab({ user, transactions, setTransactions, donors, funds, orgConfig }) {
+function TransactionsTab({ user, transactions, setTransactions, donors, setDonors, funds, orgConfig }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importRows, setImportRows] = useState([]);
@@ -565,70 +738,179 @@ function TransactionsTab({ user, transactions, setTransactions, donors, funds, o
       const lines = ev.target.result.split('\n').filter(l => l.trim());
       if (lines.length < 2) { alert('CSV is empty'); return; }
       const header = lines[0].split(',').map(x => x.replace(/"/g,'').trim().toLowerCase());
+
+      // ===== TITHELY FORMAT DETECTION =====
+      const isTithely = header.includes('amount') && header.includes('giving type') &&
+                        (header.includes('transaction date') || header.includes('deposit date')) &&
+                        header.includes('name');
+
       const findCol = (names) => {
+        for (const n of names) {
+          const idx = header.findIndex(h => h === n);
+          if (idx >= 0) return idx;
+        }
         for (const n of names) {
           const idx = header.findIndex(h => h.includes(n));
           if (idx >= 0) return idx;
         }
         return -1;
       };
-      const dateIdx = findCol(['date','posted','transaction date']);
-      const descIdx = findCol(['description','desc','payee','merchant','memo','name','details']);
-      const amtIdx = findCol(['amount','value']);
-      const debitIdx = findCol(['debit','withdrawal','expense']);
-      const creditIdx = findCol(['credit','deposit','income']);
-      const catIdx = findCol(['category','cat','type']);
-      const donorIdx = findCol(['donor','member','customer','from','contributor','giver']);
 
-      const parsed = lines.slice(1).map((l, idx) => {
-        const c = l.split(',').map(x => x.replace(/"/g,'').trim());
-        let date = (dateIdx >= 0 ? c[dateIdx] : c[0]) || '';
-        if (date.includes('/')) {
-          const parts = date.split('/');
-          if (parts.length === 3) {
-            const mo = parts[0].padStart(2,'0');
-            const dy = parts[1].padStart(2,'0');
-            let yr = parts[2]; if (yr.length === 2) yr = '20' + yr;
-            date = `${yr}-${mo}-${dy}`;
+      let parsed;
+      if (isTithely) {
+        // Tithely-specific parsing
+        const amtIdx = findCol(['amount']);
+        const netAmtIdx = findCol(['net amount']);
+        const nameIdx = findCol(['name']);
+        const emailIdx = findCol(['contact email','email']);
+        const addrIdx = findCol(['address']);
+        const phoneIdx = findCol(['phone']);
+        const givingIdx = findCol(['giving type']);
+        const memoIdx = findCol(['memo / note','memo','note']);
+        const txDateIdx = findCol(['transaction date']);
+        const depDateIdx = findCol(['deposit date']);
+        const methodIdx = findCol(['payment method']);
+        const refundIdx = findCol(['refund / remove','refund','remove']);
+
+        parsed = lines.slice(1).map((l, idx) => {
+          // Properly handle quoted CSV (Tithely has commas in addresses)
+          const c = [];
+          let cur = '', inQ = false;
+          for (let i = 0; i < l.length; i++) {
+            const ch = l[i];
+            if (ch === '"') { inQ = !inQ; continue; }
+            if (ch === ',' && !inQ) { c.push(cur.trim()); cur = ''; continue; }
+            cur += ch;
           }
-        }
-        let desc = (descIdx >= 0 ? c[descIdx] : '') || 'Imported';
-        let amt = 0;
-        let txType = 'expense';
-        if (amtIdx >= 0 && c[amtIdx]) {
-          const n = parseFloat((c[amtIdx]||'').replace(/[$,]/g,'')) || 0;
-          amt = Math.abs(n);
-          txType = n >= 0 ? 'income' : 'expense';
-        } else if (debitIdx >= 0 || creditIdx >= 0) {
-          const debit = debitIdx >= 0 ? (parseFloat((c[debitIdx]||'').replace(/[$,]/g,'')) || 0) : 0;
-          const credit = creditIdx >= 0 ? (parseFloat((c[creditIdx]||'').replace(/[$,]/g,'')) || 0) : 0;
-          if (credit > 0) { amt = credit; txType = 'income'; }
-          else if (debit > 0) { amt = debit; txType = 'expense'; }
-        }
-        const cat = catIdx >= 0 ? c[catIdx] : '';
-        const donorName = donorIdx >= 0 ? c[donorIdx] : '';
-        if (amt === 0) return null;
-        // Auto-pick category if available
-        let chosenCat = '';
-        const validCats = txType === 'income' ? orgConfig.incomeCategories : EXPENSE_CATEGORIES;
-        if (cat) {
-          chosenCat = validCats.find(vc => vc.toLowerCase() === cat.toLowerCase()) || validCats[0];
-        } else {
-          chosenCat = txType === 'income' ? orgConfig.incomeCategories[0] : 'Other Expenses';
-        }
-        // Match donor by name
-        let matchedDonorId = '';
-        if (donorName) {
-          const match = donors.find(d => d.name.toLowerCase() === donorName.toLowerCase());
-          if (match) matchedDonorId = match.id;
-        }
-        return {
-          id: 'tx_' + Date.now() + '_' + idx,
-          date, description: desc, amount: amt, type: txType,
-          category: chosenCat, donor_id: matchedDonorId, donorName,
-          include: true,
-        };
-      }).filter(r => r !== null);
+          c.push(cur.trim());
+
+          // Skip refunded entries
+          if (refundIdx >= 0 && c[refundIdx] && /yes|true|refund/i.test(c[refundIdx])) return null;
+
+          let date = (txDateIdx >= 0 ? c[txDateIdx] : (depDateIdx >= 0 ? c[depDateIdx] : '')) || '';
+          if (date.includes('/')) {
+            const parts = date.split('/');
+            if (parts.length === 3) {
+              const mo = parts[0].padStart(2,'0');
+              const dy = parts[1].padStart(2,'0');
+              let yr = parts[2]; if (yr.length === 2) yr = '20' + yr;
+              date = `${yr}-${mo}-${dy}`;
+            }
+          }
+
+          const amt = parseFloat((c[amtIdx]||'').replace(/[$,]/g,'')) || 0;
+          if (amt === 0) return null;
+
+          const donorName = nameIdx >= 0 ? c[nameIdx] : '';
+          const givingType = givingIdx >= 0 ? c[givingIdx] : '';
+          const memo = memoIdx >= 0 ? c[memoIdx] : '';
+          const method = methodIdx >= 0 ? c[methodIdx] : '';
+
+          // Map Tithely "Giving Type" to our categories
+          const validCats = orgConfig.incomeCategories;
+          let chosenCat = validCats.find(vc => vc.toLowerCase() === (givingType||'').toLowerCase()) || '';
+          if (!chosenCat) {
+            const gt = (givingType || '').toLowerCase();
+            if (/tithe/i.test(gt)) chosenCat = 'Tithes';
+            else if (/general|offering/i.test(gt)) chosenCat = 'Offerings';
+            else if (/building|capital/i.test(gt)) chosenCat = 'Building Fund';
+            else if (/mission/i.test(gt)) chosenCat = 'Missions';
+            else if (/youth/i.test(gt)) chosenCat = 'Youth Ministry';
+            else if (/children|kids/i.test(gt)) chosenCat = "Children's Ministry";
+            else if (/benevolence/i.test(gt)) chosenCat = 'Benevolence Fund';
+            else if (/easter/i.test(gt)) chosenCat = 'Easter Offering';
+            else if (/christmas/i.test(gt)) chosenCat = 'Christmas Offering';
+            else if (/memorial/i.test(gt)) chosenCat = 'Memorial Gifts';
+            else if (/pledge/i.test(gt)) chosenCat = 'Pledges Received';
+            else chosenCat = 'Online Giving';
+            if (!validCats.includes(chosenCat)) chosenCat = validCats[0];
+          }
+
+          // Match donor by name
+          let matchedDonorId = '';
+          if (donorName) {
+            const match = donors.find(d => d.name.toLowerCase() === donorName.toLowerCase());
+            if (match) matchedDonorId = match.id;
+          }
+
+          const desc = givingType + (memo ? ' — ' + memo : '') + (method ? ' (' + method + ')' : '');
+
+          return {
+            id: 'tx_' + Date.now() + '_' + idx,
+            date, description: desc || 'Tithely import', amount: amt, type: 'income',
+            category: chosenCat, donor_id: matchedDonorId, donorName,
+            // Extra Tithely fields to maybe auto-create donor
+            _tithely: true,
+            _email: emailIdx >= 0 ? c[emailIdx] : '',
+            _phone: phoneIdx >= 0 ? c[phoneIdx] : '',
+            _address: addrIdx >= 0 ? c[addrIdx] : '',
+            include: true,
+          };
+        }).filter(r => r !== null);
+      } else {
+        // ===== GENERIC CSV PARSING =====
+        const dateIdx = findCol(['date','posted','transaction date']);
+        const descIdx = findCol(['description','desc','payee','merchant','memo','name','details']);
+        const amtIdx = findCol(['amount','value']);
+        const debitIdx = findCol(['debit','withdrawal','expense']);
+        const creditIdx = findCol(['credit','deposit','income']);
+        const catIdx = findCol(['category','cat','type']);
+        const donorIdx = findCol(['donor','member','customer','from','contributor','giver']);
+
+        parsed = lines.slice(1).map((l, idx) => {
+          const c = l.split(',').map(x => x.replace(/"/g,'').trim());
+          let date = (dateIdx >= 0 ? c[dateIdx] : c[0]) || '';
+          if (date.includes('/')) {
+            const parts = date.split('/');
+            if (parts.length === 3) {
+              const mo = parts[0].padStart(2,'0');
+              const dy = parts[1].padStart(2,'0');
+              let yr = parts[2]; if (yr.length === 2) yr = '20' + yr;
+              date = `${yr}-${mo}-${dy}`;
+            }
+          }
+          let desc = (descIdx >= 0 ? c[descIdx] : '') || 'Imported';
+          let amt = 0;
+          let txType = 'expense';
+          if (amtIdx >= 0 && c[amtIdx]) {
+            const n = parseFloat((c[amtIdx]||'').replace(/[$,]/g,'')) || 0;
+            amt = Math.abs(n);
+            txType = n >= 0 ? 'income' : 'expense';
+          } else if (debitIdx >= 0 || creditIdx >= 0) {
+            const debit = debitIdx >= 0 ? (parseFloat((c[debitIdx]||'').replace(/[$,]/g,'')) || 0) : 0;
+            const credit = creditIdx >= 0 ? (parseFloat((c[creditIdx]||'').replace(/[$,]/g,'')) || 0) : 0;
+            if (credit > 0) { amt = credit; txType = 'income'; }
+            else if (debit > 0) { amt = debit; txType = 'expense'; }
+          }
+          const cat = catIdx >= 0 ? c[catIdx] : '';
+          const donorName = donorIdx >= 0 ? c[donorIdx] : '';
+          if (amt === 0) return null;
+          let chosenCat = '';
+          const validCats = txType === 'income' ? orgConfig.incomeCategories : orgConfig.expenseCategories;
+          if (cat) {
+            chosenCat = validCats.find(vc => vc.toLowerCase() === cat.toLowerCase()) || '';
+          }
+          if (!chosenCat) {
+            chosenCat = txType === 'income' ? guessIncomeCategory(desc, orgConfig.id) : guessExpenseCategory(desc);
+            if (!validCats.includes(chosenCat)) chosenCat = validCats[0];
+          }
+          let matchedDonorId = '';
+          if (donorName) {
+            const match = donors.find(d => d.name.toLowerCase() === donorName.toLowerCase());
+            if (match) matchedDonorId = match.id;
+          }
+          return {
+            id: 'tx_' + Date.now() + '_' + idx,
+            date, description: desc, amount: amt, type: txType,
+            category: chosenCat, donor_id: matchedDonorId, donorName,
+            include: true,
+          };
+        }).filter(r => r !== null);
+      }
+
+      if (isTithely) {
+        alert(`🎉 Tithely format detected! Found ${parsed.length} transactions. Review them before importing.`);
+      }
       setImportRows(parsed);
       setShowImport(true);
       e.target.value = '';
@@ -637,11 +919,50 @@ function TransactionsTab({ user, transactions, setTransactions, donors, funds, o
   };
 
   const handleImportAll = async () => {
-    const toImport = importRows.filter(r => r.include).map(r => ({
-      id: r.id, user_id: user.id, type: r.type, date: r.date,
-      amount: r.amount, category: r.category, description: r.description,
-      donor_id: r.donor_id || null, fund_id: importFundId || null, notes: '',
-    }));
+    // First, auto-create any missing donors from Tithely rows
+    const newDonors = [];
+    const tithelyRows = importRows.filter(r => r.include && r._tithely && r.donorName && !r.donor_id);
+    const seenNames = new Set();
+    tithelyRows.forEach(r => {
+      const lname = r.donorName.toLowerCase();
+      if (seenNames.has(lname)) return;
+      seenNames.add(lname);
+      newDonors.push({
+        id: 'donor_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
+        user_id: user.id,
+        name: r.donorName,
+        email: r._email || '',
+        phone: r._phone || '',
+        address: r._address || '',
+        total_given: 0,
+      });
+    });
+
+    if (newDonors.length > 0) {
+      try {
+        const sb = await getSupabase();
+        await sb.from('ksp_donors').insert(newDonors);
+      } catch(e) { console.log('Auto-create donor:', e); }
+      setDonors(p => [...p, ...newDonors]);
+    }
+
+    // Now build the donor lookup with both existing AND newly-created donors
+    const allDonors = [...donors, ...newDonors];
+
+    const toImport = importRows.filter(r => r.include).map(r => {
+      let donorId = r.donor_id;
+      // For Tithely rows without donor_id, match against newly-created donors
+      if (!donorId && r.donorName) {
+        const found = allDonors.find(d => d.name.toLowerCase() === r.donorName.toLowerCase());
+        if (found) donorId = found.id;
+      }
+      return {
+        id: r.id, user_id: user.id, type: r.type, date: r.date,
+        amount: r.amount, category: r.category, description: r.description,
+        donor_id: donorId || null, fund_id: importFundId || null, notes: '',
+      };
+    });
+
     setTransactions(p => [...p, ...toImport]);
     try {
       const sb = await getSupabase();
@@ -649,7 +970,10 @@ function TransactionsTab({ user, transactions, setTransactions, donors, funds, o
     } catch(e) { console.log('Import save:', e); }
     setShowImport(false);
     setImportRows([]);
-    alert(`✓ Imported ${toImport.length} transactions!`);
+
+    let msg = `✓ Imported ${toImport.length} transactions!`;
+    if (newDonors.length > 0) msg += `\n👥 Also auto-created ${newDonors.length} new donors from Tithely.`;
+    alert(msg);
   };
 
   const handleAdd = async () => {
@@ -733,7 +1057,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, funds, o
                     </td>
                     <td style={{ padding:6 }}>
                       <select value={r.category} onChange={e=>setImportRows(p=>p.map((x,j)=>j===i?{...x, category:e.target.value}:x))} style={{ fontSize:'0.78rem', padding:'2px 4px', maxWidth:140 }}>
-                        {(r.type==='income' ? orgConfig.incomeCategories : EXPENSE_CATEGORIES).map(c => <option key={c}>{c}</option>)}
+                        {(r.type==='income' ? orgConfig.incomeCategories : orgConfig.expenseCategories).map(c => <option key={c}>{c}</option>)}
                       </select>
                     </td>
                     <td style={{ padding:6 }}>
@@ -775,7 +1099,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, funds, o
             <div>
               <label style={{ fontSize:'0.78rem', fontWeight:700, display:'block', marginBottom:4 }}>Category</label>
               <select style={{ width:'100%' }} value={category} onChange={e=>setCategory(e.target.value)}>
-                {(type==='income' ? orgConfig.incomeCategories : EXPENSE_CATEGORIES).map(c => <option key={c}>{c}</option>)}
+                {(type==='income' ? orgConfig.incomeCategories : orgConfig.expenseCategories).map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
             <div>
@@ -1295,10 +1619,12 @@ function StatementsTab({ user, donors, transactions, orgConfig, orgName }) {
 }
 
 // ============ SETTINGS TAB ============
-function SettingsTab({ user, orgName, setOrgName, orgType, setOrgType }) {
+function SettingsTab({ user, orgName, setOrgName, orgType, setOrgType, customIncomeCats, setCustomIncomeCats, customExpenseCats, setCustomExpenseCats }) {
   const [name, setName] = useState(orgName);
   const [type, setType] = useState(orgType);
   const [saving, setSaving] = useState(false);
+  const [newIncCat, setNewIncCat] = useState('');
+  const [newExpCat, setNewExpCat] = useState('');
 
   const handleSave = async () => {
     setSaving(true);
@@ -1330,6 +1656,51 @@ function SettingsTab({ user, orgName, setOrgName, orgType, setOrgType }) {
         </div>
 
         <button className="btn btn-navy" onClick={handleSave} disabled={saving}>{saving?'...':'Save Changes'}</button>
+      </div>
+
+      <div className="card card-p" style={{ marginBottom:'1.5rem', maxWidth:600 }}>
+        <h3 style={{ marginBottom:'0.5rem' }}>📂 Custom Categories</h3>
+        <p style={{ color: TXT_LIGHT, fontSize:'0.85rem', marginBottom:'1rem' }}>Add your own categories beyond the built-in options.</p>
+
+        <div style={{ marginBottom:'1.5rem' }}>
+          <label style={{ fontSize:'0.78rem', fontWeight:700, display:'block', marginBottom:6, color: FOREST }}>💵 Custom Income Categories</label>
+          <div style={{ display:'flex', gap:6, marginBottom:8 }}>
+            <input style={{ flex:1 }} value={newIncCat} onChange={e=>setNewIncCat(e.target.value)} placeholder="e.g., Weekend Conference Income" onKeyDown={e=>{ if(e.key==='Enter' && newIncCat.trim()){ setCustomIncomeCats(p=>[...p, newIncCat.trim()]); setNewIncCat(''); }}} />
+            <button className="btn btn-navy" onClick={()=>{ if(newIncCat.trim()){ setCustomIncomeCats(p=>[...p, newIncCat.trim()]); setNewIncCat(''); }}}>+ Add</button>
+          </div>
+          {customIncomeCats.length === 0 ? (
+            <p style={{ fontSize:'0.78rem', color: TXT_LIGHT, fontStyle:'italic' }}>No custom income categories yet.</p>
+          ) : (
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+              {customIncomeCats.map((c, i) => (
+                <span key={i} style={{ background: SAGE, color: FOREST, padding:'4px 8px 4px 12px', borderRadius:6, fontSize:'0.82rem', fontWeight:600, display:'flex', alignItems:'center', gap:6 }}>
+                  {c}
+                  <button onClick={()=>setCustomIncomeCats(p=>p.filter((_,j)=>j!==i))} style={{ background:'none', border:'none', cursor:'pointer', color:FOREST, fontSize:14, padding:0 }}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label style={{ fontSize:'0.78rem', fontWeight:700, display:'block', marginBottom:6, color: RED }}>🧾 Custom Expense Categories</label>
+          <div style={{ display:'flex', gap:6, marginBottom:8 }}>
+            <input style={{ flex:1 }} value={newExpCat} onChange={e=>setNewExpCat(e.target.value)} placeholder="e.g., Pastor Appreciation Gift" onKeyDown={e=>{ if(e.key==='Enter' && newExpCat.trim()){ setCustomExpenseCats(p=>[...p, newExpCat.trim()]); setNewExpCat(''); }}} />
+            <button className="btn btn-navy" onClick={()=>{ if(newExpCat.trim()){ setCustomExpenseCats(p=>[...p, newExpCat.trim()]); setNewExpCat(''); }}}>+ Add</button>
+          </div>
+          {customExpenseCats.length === 0 ? (
+            <p style={{ fontSize:'0.78rem', color: TXT_LIGHT, fontStyle:'italic' }}>No custom expense categories yet.</p>
+          ) : (
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+              {customExpenseCats.map((c, i) => (
+                <span key={i} style={{ background: RED_PALE, color: RED, padding:'4px 8px 4px 12px', borderRadius:6, fontSize:'0.82rem', fontWeight:600, display:'flex', alignItems:'center', gap:6 }}>
+                  {c}
+                  <button onClick={()=>setCustomExpenseCats(p=>p.filter((_,j)=>j!==i))} style={{ background:'none', border:'none', cursor:'pointer', color:RED, fontSize:14, padding:0 }}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="card card-p" style={{ maxWidth:600 }}>
