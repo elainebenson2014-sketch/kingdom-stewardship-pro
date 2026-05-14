@@ -546,6 +546,9 @@ function StatCard({ label, value, color, sub }) {
 // ============ TRANSACTIONS TAB ============
 function TransactionsTab({ user, transactions, setTransactions, donors, funds, orgConfig }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importRows, setImportRows] = useState([]);
+  const [importFundId, setImportFundId] = useState(funds[0]?.id || '');
   const [type, setType] = useState('income');
   const [date, setDate] = useState(new Date().toISOString().slice(0,10));
   const [amount, setAmount] = useState('');
@@ -554,6 +557,100 @@ function TransactionsTab({ user, transactions, setTransactions, donors, funds, o
   const [donorId, setDonorId] = useState('');
   const [fundId, setFundId] = useState(funds[0]?.id || '');
   const [notes, setNotes] = useState('');
+
+  const handleCSVUpload = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const lines = ev.target.result.split('\n').filter(l => l.trim());
+      if (lines.length < 2) { alert('CSV is empty'); return; }
+      const header = lines[0].split(',').map(x => x.replace(/"/g,'').trim().toLowerCase());
+      const findCol = (names) => {
+        for (const n of names) {
+          const idx = header.findIndex(h => h.includes(n));
+          if (idx >= 0) return idx;
+        }
+        return -1;
+      };
+      const dateIdx = findCol(['date','posted','transaction date']);
+      const descIdx = findCol(['description','desc','payee','merchant','memo','name','details']);
+      const amtIdx = findCol(['amount','value']);
+      const debitIdx = findCol(['debit','withdrawal','expense']);
+      const creditIdx = findCol(['credit','deposit','income']);
+      const catIdx = findCol(['category','cat','type']);
+      const donorIdx = findCol(['donor','member','customer','from','contributor','giver']);
+
+      const parsed = lines.slice(1).map((l, idx) => {
+        const c = l.split(',').map(x => x.replace(/"/g,'').trim());
+        let date = (dateIdx >= 0 ? c[dateIdx] : c[0]) || '';
+        if (date.includes('/')) {
+          const parts = date.split('/');
+          if (parts.length === 3) {
+            const mo = parts[0].padStart(2,'0');
+            const dy = parts[1].padStart(2,'0');
+            let yr = parts[2]; if (yr.length === 2) yr = '20' + yr;
+            date = `${yr}-${mo}-${dy}`;
+          }
+        }
+        let desc = (descIdx >= 0 ? c[descIdx] : '') || 'Imported';
+        let amt = 0;
+        let txType = 'expense';
+        if (amtIdx >= 0 && c[amtIdx]) {
+          const n = parseFloat((c[amtIdx]||'').replace(/[$,]/g,'')) || 0;
+          amt = Math.abs(n);
+          txType = n >= 0 ? 'income' : 'expense';
+        } else if (debitIdx >= 0 || creditIdx >= 0) {
+          const debit = debitIdx >= 0 ? (parseFloat((c[debitIdx]||'').replace(/[$,]/g,'')) || 0) : 0;
+          const credit = creditIdx >= 0 ? (parseFloat((c[creditIdx]||'').replace(/[$,]/g,'')) || 0) : 0;
+          if (credit > 0) { amt = credit; txType = 'income'; }
+          else if (debit > 0) { amt = debit; txType = 'expense'; }
+        }
+        const cat = catIdx >= 0 ? c[catIdx] : '';
+        const donorName = donorIdx >= 0 ? c[donorIdx] : '';
+        if (amt === 0) return null;
+        // Auto-pick category if available
+        let chosenCat = '';
+        const validCats = txType === 'income' ? orgConfig.incomeCategories : EXPENSE_CATEGORIES;
+        if (cat) {
+          chosenCat = validCats.find(vc => vc.toLowerCase() === cat.toLowerCase()) || validCats[0];
+        } else {
+          chosenCat = txType === 'income' ? orgConfig.incomeCategories[0] : 'Other Expenses';
+        }
+        // Match donor by name
+        let matchedDonorId = '';
+        if (donorName) {
+          const match = donors.find(d => d.name.toLowerCase() === donorName.toLowerCase());
+          if (match) matchedDonorId = match.id;
+        }
+        return {
+          id: 'tx_' + Date.now() + '_' + idx,
+          date, description: desc, amount: amt, type: txType,
+          category: chosenCat, donor_id: matchedDonorId, donorName,
+          include: true,
+        };
+      }).filter(r => r !== null);
+      setImportRows(parsed);
+      setShowImport(true);
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportAll = async () => {
+    const toImport = importRows.filter(r => r.include).map(r => ({
+      id: r.id, user_id: user.id, type: r.type, date: r.date,
+      amount: r.amount, category: r.category, description: r.description,
+      donor_id: r.donor_id || null, fund_id: importFundId || null, notes: '',
+    }));
+    setTransactions(p => [...p, ...toImport]);
+    try {
+      const sb = await getSupabase();
+      await sb.from('ksp_transactions').insert(toImport);
+    } catch(e) { console.log('Import save:', e); }
+    setShowImport(false);
+    setImportRows([]);
+    alert(`✓ Imported ${toImport.length} transactions!`);
+  };
 
   const handleAdd = async () => {
     if (!amount || !category) return;
@@ -586,10 +683,77 @@ function TransactionsTab({ user, transactions, setTransactions, donors, funds, o
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem' }}>
         <h2 style={{ fontSize:'1.6rem' }}>💰 Transactions</h2>
         <div style={{ display:'flex', gap:8 }}>
-          <button className="btn btn-outline">📥 Import CSV</button>
+          <label className="btn btn-outline" style={{ cursor:'pointer' }}>
+            📥 Import CSV
+            <input type="file" accept=".csv" style={{ display:'none' }} onChange={handleCSVUpload} />
+          </label>
           <button className="btn btn-navy" onClick={()=>setShowAdd(true)}>+ Add Transaction</button>
         </div>
       </div>
+
+      {showImport && (
+        <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${GOLD}` }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
+            <h3>📥 Review Import ({importRows.filter(r=>r.include).length} of {importRows.length} selected)</h3>
+            <button onClick={()=>{ setShowImport(false); setImportRows([]); }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18 }}>×</button>
+          </div>
+          {orgConfig.hasFunds && (
+            <div style={{ marginBottom:'1rem' }}>
+              <label style={{ fontSize:'0.78rem', fontWeight:700, display:'block', marginBottom:4 }}>Assign all to fund:</label>
+              <select style={{ width:'100%', maxWidth:300 }} value={importFundId} onChange={e=>setImportFundId(e.target.value)}>
+                {funds.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </div>
+          )}
+          <div style={{ background:'#FAFAF6', padding:8, borderRadius:8, marginBottom:'1rem', fontSize:'0.78rem', color: TXT_LIGHT }}>
+            💡 <strong>Tip:</strong> Make sure your CSV has columns: <code>Date, Description, Amount</code> (or Date, Desc, Debit, Credit). For donor matching, add a <code>Donor</code> column with names matching your donor list.
+          </div>
+          <div style={{ maxHeight:400, overflow:'auto', marginBottom:'1rem' }}>
+            <table style={{ width:'100%', fontSize:'0.82rem' }}>
+              <thead><tr style={{ background: CREAM, position:'sticky', top:0 }}>
+                <th style={{ padding:6, width:30 }}><input type="checkbox" checked={importRows.every(r=>r.include)} onChange={e=>setImportRows(p=>p.map(r=>({...r, include:e.target.checked})))} /></th>
+                <th style={{ padding:6, textAlign:'left' }}>Date</th>
+                <th style={{ padding:6, textAlign:'left' }}>Description</th>
+                <th style={{ padding:6, textAlign:'left' }}>Type</th>
+                <th style={{ padding:6, textAlign:'left' }}>Category</th>
+                <th style={{ padding:6, textAlign:'left' }}>Donor</th>
+                <th style={{ padding:6, textAlign:'right' }}>Amount</th>
+              </tr></thead>
+              <tbody>
+                {importRows.map((r, i) => (
+                  <tr key={r.id} style={{ borderBottom:`1px solid ${BORDER}`, background: r.include ? 'transparent' : '#F8F8F8' }}>
+                    <td style={{ padding:6 }}><input type="checkbox" checked={r.include} onChange={e=>setImportRows(p=>p.map((x,j)=>j===i?{...x, include:e.target.checked}:x))} /></td>
+                    <td style={{ padding:6 }}>{r.date}</td>
+                    <td style={{ padding:6 }}>{r.description.slice(0,40)}</td>
+                    <td style={{ padding:6 }}>
+                      <select value={r.type} onChange={e=>setImportRows(p=>p.map((x,j)=>j===i?{...x, type:e.target.value, category: e.target.value==='income'?orgConfig.incomeCategories[0]:'Other Expenses'}:x))} style={{ fontSize:'0.78rem', padding:'2px 4px' }}>
+                        <option value="income">Income</option>
+                        <option value="expense">Expense</option>
+                      </select>
+                    </td>
+                    <td style={{ padding:6 }}>
+                      <select value={r.category} onChange={e=>setImportRows(p=>p.map((x,j)=>j===i?{...x, category:e.target.value}:x))} style={{ fontSize:'0.78rem', padding:'2px 4px', maxWidth:140 }}>
+                        {(r.type==='income' ? orgConfig.incomeCategories : EXPENSE_CATEGORIES).map(c => <option key={c}>{c}</option>)}
+                      </select>
+                    </td>
+                    <td style={{ padding:6 }}>
+                      <select value={r.donor_id} onChange={e=>setImportRows(p=>p.map((x,j)=>j===i?{...x, donor_id:e.target.value}:x))} style={{ fontSize:'0.78rem', padding:'2px 4px', maxWidth:120 }}>
+                        <option value="">— None —</option>
+                        {donors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                    </td>
+                    <td style={{ padding:6, textAlign:'right', fontWeight:700, color: r.type==='income'?FOREST:RED }}>{fmt(r.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button className="btn btn-navy" onClick={handleImportAll}>✓ Import {importRows.filter(r=>r.include).length} Transactions</button>
+            <button className="btn btn-outline" onClick={()=>{ setShowImport(false); setImportRows([]); }}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       {showAdd && (
         <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${GOLD}` }}>
@@ -680,10 +844,89 @@ function TransactionsTab({ user, transactions, setTransactions, donors, funds, o
 // ============ DONORS TAB ============
 function DonorsTab({ user, donors, setDonors, transactions, orgConfig }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importRows, setImportRows] = useState([]);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+
+  const handleCSVUpload = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const lines = ev.target.result.split('\n').filter(l => l.trim());
+      if (lines.length < 2) { alert('CSV is empty'); return; }
+      const header = lines[0].split(',').map(x => x.replace(/"/g,'').trim().toLowerCase());
+      const findCol = (names) => {
+        for (const n of names) {
+          const idx = header.findIndex(h => h.includes(n));
+          if (idx >= 0) return idx;
+        }
+        return -1;
+      };
+      const nameIdx = findCol(['name','full name','donor','member','contact']);
+      const firstNameIdx = findCol(['first name','firstname','first']);
+      const lastNameIdx = findCol(['last name','lastname','last','surname']);
+      const emailIdx = findCol(['email','e-mail']);
+      const phoneIdx = findCol(['phone','mobile','cell','tel']);
+      const addrIdx = findCol(['address','street','mailing']);
+      const cityIdx = findCol(['city']);
+      const stateIdx = findCol(['state','province']);
+      const zipIdx = findCol(['zip','postal']);
+
+      const parsed = lines.slice(1).map((l, idx) => {
+        const c = l.split(',').map(x => x.replace(/"/g,'').trim());
+        // Build name
+        let fullName = '';
+        if (nameIdx >= 0 && c[nameIdx]) fullName = c[nameIdx];
+        else if (firstNameIdx >= 0 || lastNameIdx >= 0) {
+          fullName = `${firstNameIdx >= 0 ? c[firstNameIdx] || '' : ''} ${lastNameIdx >= 0 ? c[lastNameIdx] || '' : ''}`.trim();
+        } else if (c[0]) fullName = c[0];
+        if (!fullName) return null;
+        // Build address
+        let fullAddr = '';
+        if (addrIdx >= 0) fullAddr = c[addrIdx] || '';
+        const parts = [];
+        if (cityIdx >= 0 && c[cityIdx]) parts.push(c[cityIdx]);
+        if (stateIdx >= 0 && c[stateIdx]) parts.push(c[stateIdx]);
+        if (zipIdx >= 0 && c[zipIdx]) parts.push(c[zipIdx]);
+        if (parts.length > 0) fullAddr = fullAddr + (fullAddr ? ', ' : '') + parts.join(', ');
+        return {
+          id: 'donor_' + Date.now() + '_' + idx,
+          name: fullName,
+          email: emailIdx >= 0 ? (c[emailIdx] || '') : '',
+          phone: phoneIdx >= 0 ? (c[phoneIdx] || '') : '',
+          address: fullAddr,
+          include: true,
+        };
+      }).filter(r => r !== null);
+      setImportRows(parsed);
+      setShowImport(true);
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportAll = async () => {
+    const existingNames = new Set(donors.map(d => d.name.toLowerCase()));
+    const toImport = importRows.filter(r => r.include && !existingNames.has(r.name.toLowerCase())).map(r => ({
+      id: r.id, user_id: user.id, name: r.name,
+      email: r.email, phone: r.phone, address: r.address, total_given: 0,
+    }));
+    if (toImport.length === 0) {
+      alert('No new donors to import (all names already exist).');
+      return;
+    }
+    setDonors(p => [...p, ...toImport]);
+    try {
+      const sb = await getSupabase();
+      await sb.from('ksp_donors').insert(toImport);
+    } catch(e) { console.log('Donor import save:', e); }
+    setShowImport(false);
+    setImportRows([]);
+    alert(`✓ Imported ${toImport.length} ${orgConfig.donorLabel.toLowerCase()}!`);
+  };
 
   const handleAdd = async () => {
     if (!name) return;
@@ -703,8 +946,55 @@ function DonorsTab({ user, donors, setDonors, transactions, orgConfig }) {
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem' }}>
         <h2 style={{ fontSize:'1.6rem' }}>👥 {orgConfig.donorLabel}</h2>
-        <button className="btn btn-navy" onClick={()=>setShowAdd(true)}>+ Add {orgConfig.donorLabel.slice(0,-1)}</button>
+        <div style={{ display:'flex', gap:8 }}>
+          <label className="btn btn-outline" style={{ cursor:'pointer' }}>
+            📥 Import CSV
+            <input type="file" accept=".csv" style={{ display:'none' }} onChange={handleCSVUpload} />
+          </label>
+          <button className="btn btn-navy" onClick={()=>setShowAdd(true)}>+ Add {orgConfig.donorLabel.slice(0,-1)}</button>
+        </div>
       </div>
+
+      {showImport && (
+        <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${GOLD}` }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
+            <h3>📥 Review Import ({importRows.filter(r=>r.include).length} of {importRows.length} selected)</h3>
+            <button onClick={()=>{ setShowImport(false); setImportRows([]); }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18 }}>×</button>
+          </div>
+          <div style={{ background:'#FAFAF6', padding:8, borderRadius:8, marginBottom:'1rem', fontSize:'0.78rem', color: TXT_LIGHT }}>
+            💡 <strong>Expected columns:</strong> Name (or First Name + Last Name), Email, Phone, Address, City, State, Zip. Duplicates by name will be skipped.
+          </div>
+          <div style={{ maxHeight:400, overflow:'auto', marginBottom:'1rem' }}>
+            <table style={{ width:'100%', fontSize:'0.82rem' }}>
+              <thead><tr style={{ background: CREAM, position:'sticky', top:0 }}>
+                <th style={{ padding:6, width:30 }}><input type="checkbox" checked={importRows.every(r=>r.include)} onChange={e=>setImportRows(p=>p.map(r=>({...r, include:e.target.checked})))} /></th>
+                <th style={{ padding:6, textAlign:'left' }}>Name</th>
+                <th style={{ padding:6, textAlign:'left' }}>Email</th>
+                <th style={{ padding:6, textAlign:'left' }}>Phone</th>
+                <th style={{ padding:6, textAlign:'left' }}>Address</th>
+              </tr></thead>
+              <tbody>
+                {importRows.map((r, i) => {
+                  const isDup = donors.some(d => d.name.toLowerCase() === r.name.toLowerCase());
+                  return (
+                    <tr key={r.id} style={{ borderBottom:`1px solid ${BORDER}`, background: isDup ? '#FFF3F3' : (r.include ? 'transparent' : '#F8F8F8') }}>
+                      <td style={{ padding:6 }}><input type="checkbox" disabled={isDup} checked={r.include && !isDup} onChange={e=>setImportRows(p=>p.map((x,j)=>j===i?{...x, include:e.target.checked}:x))} /></td>
+                      <td style={{ padding:6, color: isDup ? RED : NAVY }}>{r.name} {isDup && <span style={{ fontSize:'0.7rem', color:RED, fontWeight:700 }}>(duplicate)</span>}</td>
+                      <td style={{ padding:6 }}>{r.email}</td>
+                      <td style={{ padding:6 }}>{r.phone}</td>
+                      <td style={{ padding:6 }}>{r.address}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button className="btn btn-navy" onClick={handleImportAll}>✓ Import Selected</button>
+            <button className="btn btn-outline" onClick={()=>{ setShowImport(false); setImportRows([]); }}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       {showAdd && (
         <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${GOLD}` }}>
