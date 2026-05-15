@@ -629,7 +629,7 @@ function Dashboard({ user, onLogout }) {
 
       {/* Main */}
       <main style={{ flex:1, padding:'2rem', overflow:'auto' }}>
-        {tab === 'overview' && <OverviewTab transactions={transactions} donors={donors} funds={funds} orgConfig={orgConfig} />}
+        {tab === 'overview' && <OverviewTab transactions={transactions} donors={donors} funds={funds} orgConfig={orgConfig} setTab={setTab} />}
         {tab === 'transactions' && <TransactionsTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} setDonors={setDonors} funds={funds} orgConfig={orgConfig} />}
         {tab === 'donors' && <DonorsTab user={user} donors={donors} setDonors={setDonors} transactions={transactions} orgConfig={orgConfig} />}
         {tab === 'funds' && orgConfig.hasFunds && <FundsTab user={user} funds={funds} setFunds={setFunds} transactions={transactions} />}
@@ -642,7 +642,7 @@ function Dashboard({ user, onLogout }) {
 }
 
 // ============ OVERVIEW TAB ============
-function OverviewTab({ transactions, donors, funds, orgConfig }) {
+function OverviewTab({ transactions, donors, funds, orgConfig, setTab }) {
   const now = new Date();
   const ytdYear = now.getFullYear();
   const thisMonth = now.getMonth();
@@ -673,13 +673,23 @@ function OverviewTab({ transactions, donors, funds, orgConfig }) {
       <div className="card card-p" style={{ marginBottom:'1.5rem' }}>
         <h3 style={{ fontSize:'1.1rem', marginBottom:'0.75rem' }}>Quick Actions</h3>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-          <button className="btn btn-navy">+ Record Income</button>
-          <button className="btn btn-outline">+ Add Expense</button>
-          <button className="btn btn-outline">📥 Import CSV</button>
-          <button className="btn btn-outline">📄 Generate Report</button>
-          <button className="btn btn-outline">📃 Year-End Statements</button>
+          <button className="btn btn-navy" onClick={()=>setTab('transactions')}>+ Record Income / Expense</button>
+          <button className="btn btn-outline" onClick={()=>setTab('transactions')}>📥 Import CSV</button>
+          <button className="btn btn-outline" onClick={()=>setTab('donors')}>👥 Manage {orgConfig.donorLabel}</button>
+          <button className="btn btn-outline" onClick={()=>setTab('reports')}>📄 Generate Report</button>
+          <button className="btn btn-outline" onClick={()=>setTab('statements')}>📃 Year-End Statements</button>
         </div>
       </div>
+
+      {/* First-time welcome (also navigates to transactions) */}
+      {transactions.length === 0 && (
+        <div className="card card-p" style={{ textAlign:'center', padding:'3rem', marginBottom:'1.5rem' }}>
+          <div style={{ fontSize:'3rem', marginBottom:8 }}>🚀</div>
+          <h3 style={{ marginBottom:8 }}>Welcome to Kingdom Stewardship Pro!</h3>
+          <p style={{ color: TXT_LIGHT, marginBottom:'1.5rem' }}>Get started by recording your first transaction or importing a bank CSV.</p>
+          <button className="btn btn-gold" onClick={()=>setTab('transactions')}>+ Record Your First Transaction</button>
+        </div>
+      )}
 
       {/* Top donors */}
       {topDonors.length > 0 && (
@@ -695,12 +705,7 @@ function OverviewTab({ transactions, donors, funds, orgConfig }) {
       )}
 
       {transactions.length === 0 && (
-        <div className="card card-p" style={{ textAlign:'center', padding:'3rem' }}>
-          <div style={{ fontSize:'3rem', marginBottom:8 }}>🚀</div>
-          <h3 style={{ marginBottom:8 }}>Welcome to Kingdom Stewardship Pro!</h3>
-          <p style={{ color: TXT_LIGHT, marginBottom:'1.5rem' }}>Get started by recording your first transaction or importing a bank CSV.</p>
-          <button className="btn btn-gold">+ Record Your First Transaction</button>
-        </div>
+        <div style={{ display:'none' }} />
       )}
     </div>
   );
@@ -836,7 +841,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
           const desc = givingType + (memo ? ' — ' + memo : '') + (method ? ' (' + method + ')' : '');
 
           return {
-            id: 'tx_' + Date.now() + '_' + idx,
+            id: 'tx_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).slice(2,10),
             date, description: desc || 'Tithely import', amount: amt, type: 'income',
             category: chosenCat, donor_id: matchedDonorId, donorName,
             // Extra Tithely fields to maybe auto-create donor
@@ -900,7 +905,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
             if (match) matchedDonorId = match.id;
           }
           return {
-            id: 'tx_' + Date.now() + '_' + idx,
+            id: 'tx_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).slice(2,10),
             date, description: desc, amount: amt, type: txType,
             category: chosenCat, donor_id: matchedDonorId, donorName,
             include: true,
@@ -926,9 +931,11 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
     tithelyRows.forEach(r => {
       const lname = r.donorName.toLowerCase();
       if (seenNames.has(lname)) return;
+      // Also check existing donors
+      if (donors.some(d => d.name.toLowerCase() === lname)) return;
       seenNames.add(lname);
       newDonors.push({
-        id: 'donor_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
+        id: 'donor_' + Date.now() + '_' + Math.random().toString(36).slice(2,10),
         user_id: user.id,
         name: r.donorName,
         email: r._email || '',
@@ -938,24 +945,21 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
       });
     });
 
+    // Update local state IMMEDIATELY so UI feels responsive
     if (newDonors.length > 0) {
-      try {
-        const sb = await getSupabase();
-        await sb.from('ksp_donors').insert(newDonors);
-      } catch(e) { console.log('Auto-create donor:', e); }
       setDonors(p => [...p, ...newDonors]);
     }
 
-    // Now build the donor lookup with both existing AND newly-created donors
+    // Build donor lookup
     const allDonors = [...donors, ...newDonors];
 
     const toImport = importRows.filter(r => r.include).map(r => {
       let donorId = r.donor_id;
-      // For Tithely rows without donor_id, match against newly-created donors
       if (!donorId && r.donorName) {
         const found = allDonors.find(d => d.name.toLowerCase() === r.donorName.toLowerCase());
         if (found) donorId = found.id;
       }
+      // Remove internal _tithely fields before save
       return {
         id: r.id, user_id: user.id, type: r.type, date: r.date,
         amount: r.amount, category: r.category, description: r.description,
@@ -963,17 +967,36 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
       };
     });
 
+    // Update local state IMMEDIATELY
     setTransactions(p => [...p, ...toImport]);
-    try {
-      const sb = await getSupabase();
-      await sb.from('ksp_transactions').insert(toImport);
-    } catch(e) { console.log('Import save:', e); }
     setShowImport(false);
     setImportRows([]);
 
     let msg = `✓ Imported ${toImport.length} transactions!`;
-    if (newDonors.length > 0) msg += `\n👥 Also auto-created ${newDonors.length} new donors from Tithely.`;
+    if (newDonors.length > 0) msg += `\n👥 Auto-created ${newDonors.length} new donors.`;
     alert(msg);
+
+    // Save to Supabase in the background (non-blocking)
+    (async () => {
+      try {
+        const sb = await getSupabase();
+        if (newDonors.length > 0) {
+          // Batch insert donors in chunks of 100
+          for (let i = 0; i < newDonors.length; i += 100) {
+            const chunk = newDonors.slice(i, i+100);
+            await sb.from('ksp_donors').insert(chunk);
+          }
+        }
+        // Batch insert transactions in chunks of 100
+        for (let i = 0; i < toImport.length; i += 100) {
+          const chunk = toImport.slice(i, i+100);
+          await sb.from('ksp_transactions').insert(chunk);
+        }
+        console.log('✓ Saved to Supabase');
+      } catch(e) {
+        console.error('Supabase save error:', e);
+      }
+    })();
   };
 
   const handleAdd = async () => {
@@ -1152,7 +1175,15 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
                   <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{t.date}</td>
                   <td style={{ padding:'12px' }}><span style={{ background: t.type==='income'?SAGE:RED_PALE, color: t.type==='income'?FOREST:RED, padding:'2px 8px', borderRadius:6, fontSize:'0.72rem', fontWeight:700 }}>{t.type==='income'?'IN':'OUT'}</span></td>
                   <td style={{ padding:'12px', color: NAVY }}>{t.description || '—'}</td>
-                  <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{t.category}</td>
+                  <td style={{ padding:'12px' }}>
+                    <select value={t.category || 'Other'} onChange={async (e) => {
+                      const newCat = e.target.value;
+                      setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, category: newCat } : x));
+                      try { const sb = await getSupabase(); await sb.from('ksp_transactions').update({ category: newCat }).eq('id', t.id); } catch(err) { console.log('Update cat:', err); }
+                    }} style={{ background:'#fff', color: t.type==='income'?FOREST:RED, padding:'4px 8px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, border:`1px solid ${BORDER}`, cursor:'pointer', maxWidth:180 }}>
+                      {(t.type === 'income' ? orgConfig.incomeCategories : orgConfig.expenseCategories).map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </td>
                   <td style={{ padding:'12px', fontWeight:700, color: t.type==='income'?FOREST:RED }}>{t.type==='income'?'+':'-'}{fmt(t.amount)}</td>
                   <td style={{ padding:'12px' }}><button onClick={()=>handleDelete(t.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color: TXT_LIGHT }}>🗑</button></td>
                 </tr>
