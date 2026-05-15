@@ -32,6 +32,20 @@ const RED = '#B53232';
 const RED_PALE = '#FFF3F3';
 
 // ============ CATEGORY DATA ============
+// Categories that are EXCLUDED from P&L (they're bookkeeping entries, not real income/expense)
+const EXCLUDED_FROM_PL = [
+  'Tithely Deposit',     // Tithely batch deposits to bank (already counted individually)
+  'Stripe Deposit',       // Stripe payouts (already counted)
+  'PayPal Deposit',       // PayPal transfers (already counted)
+  'Transfer In',          // Account-to-account transfers
+  'Transfer Out',
+  'Internal Transfer',
+  'Loan Proceeds',        // Borrowed money (liability, not income)
+  'Loan Repayment',
+  'Owner Investment',     // Capital infusion
+  'Owner Draw',           // Distribution to owner
+];
+
 const INCOME_CATEGORIES_CHURCH = [
   'Tithes', 'Offerings', 'General Fund Giving', 'Designated Giving',
   'Building Fund', 'Capital Campaign', 'Missions', 'World Missions',
@@ -48,7 +62,8 @@ const INCOME_CATEGORIES_CHURCH = [
   'Tuition (Christian School)', 'Daycare Income',
   'Sunday School Offering', 'Vacation Bible School',
   'Online Giving', 'Stock / Asset Donations',
-  'Other Income'
+  'Tithely Deposit', 'Stripe Deposit', 'PayPal Deposit',
+  'Transfer In', 'Other Income'
 ];
 const INCOME_CATEGORIES_BUSINESS = [
   'Sales Revenue', 'Service Revenue', 'Consulting Revenue',
@@ -64,6 +79,7 @@ const INCOME_CATEGORIES_BUSINESS = [
   'Online Sales', 'In-Person Sales',
   'Wholesale Revenue', 'Retail Revenue',
   'Licensing Income',
+  'Stripe Deposit', 'PayPal Deposit', 'Transfer In',
   'Other Income'
 ];
 const INCOME_CATEGORIES_NONPROFIT = [
@@ -81,6 +97,7 @@ const INCOME_CATEGORIES_NONPROFIT = [
   'Tuition Income', 'Class Fees',
   'Major Gifts', 'Planned Giving / Bequest',
   'Online Donations',
+  'Tithely Deposit', 'Stripe Deposit', 'PayPal Deposit', 'Transfer In',
   'Other Income'
 ];
 
@@ -154,7 +171,11 @@ const guessIncomeCategory = (desc, orgType) => {
     if (/(rent)/i.test(d)) return 'Rental Income';
     if (/(interest)/i.test(d)) return 'Interest Income';
     if (/(grant)/i.test(d)) return 'Grants';
-    if (/(online|electronic|ach|paypal|stripe|tithely)/i.test(d)) return 'Online Giving';
+    // Auto-detect batch payouts from giving platforms (these are excluded from P&L to avoid double-counting)
+    if (/(tithely|tithe\.ly|wave sv|wave sa|wave dep)/i.test(d)) return 'Tithely Deposit';
+    if (/(stripe.*payout|stripe.*deposit|stripe transfer)/i.test(d)) return 'Stripe Deposit';
+    if (/(paypal.*transfer|paypal.*deposit|paypal.*payout)/i.test(d)) return 'PayPal Deposit';
+    if (/(online|electronic|ach)/i.test(d)) return 'Online Giving';
     return 'Offerings';
   }
   if (orgType === 'business') {
@@ -650,11 +671,11 @@ function OverviewTab({ transactions, donors, funds, orgConfig, setTab }) {
   const ytdTxs = transactions.filter(t => new Date(t.date).getFullYear() === ytdYear);
   const monthTxs = ytdTxs.filter(t => new Date(t.date).getMonth() === thisMonth);
 
-  const totalIncomeYTD = ytdTxs.filter(t => t.type==='income').reduce((s,t)=>s+parseFloat(t.amount||0), 0);
-  const totalExpensesYTD = ytdTxs.filter(t => t.type==='expense').reduce((s,t)=>s+parseFloat(t.amount||0), 0);
+  const totalIncomeYTD = ytdTxs.filter(t => t.type==='income' && !EXCLUDED_FROM_PL.includes(t.category)).reduce((s,t)=>s+parseFloat(t.amount||0), 0);
+  const totalExpensesYTD = ytdTxs.filter(t => t.type==='expense' && !EXCLUDED_FROM_PL.includes(t.category)).reduce((s,t)=>s+parseFloat(t.amount||0), 0);
   const netYTD = totalIncomeYTD - totalExpensesYTD;
-  const incomeMonth = monthTxs.filter(t => t.type==='income').reduce((s,t)=>s+parseFloat(t.amount||0), 0);
-  const expensesMonth = monthTxs.filter(t => t.type==='expense').reduce((s,t)=>s+parseFloat(t.amount||0), 0);
+  const incomeMonth = monthTxs.filter(t => t.type==='income' && !EXCLUDED_FROM_PL.includes(t.category)).reduce((s,t)=>s+parseFloat(t.amount||0), 0);
+  const expensesMonth = monthTxs.filter(t => t.type==='expense' && !EXCLUDED_FROM_PL.includes(t.category)).reduce((s,t)=>s+parseFloat(t.amount||0), 0);
   // Calculate actual totals per donor from transactions (not stored total_given)
   const donorTotalsMap = {};
   transactions.filter(t => t.type === 'income' && t.donor_id).forEach(t => {
@@ -739,6 +760,12 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
   const [selectedIds, setSelectedIds] = useState([]);
   const [filterMonth, setFilterMonth] = useState('all');
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
+  const [searchText, setSearchText] = useState('');
+  const [sortField, setSortField] = useState('date');
+  const [sortDir, setSortDir] = useState('desc');
+  const [filterDonor, setFilterDonor] = useState('all');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [filterType, setFilterType] = useState('all');
   const [type, setType] = useState('income');
   const [date, setDate] = useState(new Date().toISOString().slice(0,10));
   const [amount, setAmount] = useState('');
@@ -1046,7 +1073,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
         }
         for (let i = 0; i < toImport.length; i += 100) {
           const chunk = toImport.slice(i, i+100);
-          const { data, error } = await sb.from('ksp_transactions').insert(chunk).select();
+          const { data, error } = await sb.from('ksp_transactions').upsert(chunk, { onConflict: 'id' }).select();
           if (error) {
             console.error('Transaction insert error:', error);
             errorMessage = 'Transaction save error: ' + error.message + ' (code: ' + (error.code || 'N/A') + ')';
@@ -1248,14 +1275,46 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
             <p>No transactions yet. Click "Add Transaction" to get started.</p>
           </div>
         ) : (() => {
-          // Filter by year/month
+          // Filter by year/month/search/donor/category/type
           const filtered = transactions.filter(t => {
             const d = new Date(t.date);
             if (d.getFullYear() !== filterYear) return false;
             if (filterMonth !== 'all' && d.getMonth() !== parseInt(filterMonth)) return false;
+            if (filterType !== 'all' && t.type !== filterType) return false;
+            if (filterDonor !== 'all') {
+              if (filterDonor === 'none' && t.donor_id) return false;
+              if (filterDonor !== 'none' && t.donor_id !== filterDonor) return false;
+            }
+            if (filterCategory !== 'all' && t.category !== filterCategory) return false;
+            if (searchText) {
+              const s = searchText.toLowerCase();
+              const donor = donors.find(d => d.id === t.donor_id);
+              const matchDonor = donor && donor.name.toLowerCase().includes(s);
+              const matchDesc = (t.description || '').toLowerCase().includes(s);
+              const matchCat = (t.category || '').toLowerCase().includes(s);
+              const matchAmt = (parseFloat(t.amount || 0)).toFixed(2).includes(s);
+              if (!matchDonor && !matchDesc && !matchCat && !matchAmt) return false;
+            }
             return true;
           });
-          const sorted = [...filtered].sort((a,b)=>new Date(b.date)-new Date(a.date));
+          // Sort
+          const sortMul = sortDir === 'asc' ? 1 : -1;
+          const sorted = [...filtered].sort((a,b) => {
+            let av, bv;
+            if (sortField === 'date') { av = a.date || ''; bv = b.date || ''; return av.localeCompare(bv) * sortMul; }
+            if (sortField === 'desc') { av = (a.description || '').toLowerCase(); bv = (b.description || '').toLowerCase(); return av.localeCompare(bv) * sortMul; }
+            if (sortField === 'cat') { av = a.category || ''; bv = b.category || ''; return av.localeCompare(bv) * sortMul; }
+            if (sortField === 'donor') {
+              const ad = donors.find(d => d.id === a.donor_id);
+              const bd = donors.find(d => d.id === b.donor_id);
+              av = ad ? ad.name.toLowerCase() : 'zzz';
+              bv = bd ? bd.name.toLowerCase() : 'zzz';
+              return av.localeCompare(bv) * sortMul;
+            }
+            if (sortField === 'amt') { av = parseFloat(a.amt || a.amount) || 0; bv = parseFloat(b.amt || b.amount) || 0; return (av - bv) * sortMul; }
+            if (sortField === 'type') { av = a.type || ''; bv = b.type || ''; return av.localeCompare(bv) * sortMul; }
+            return 0;
+          });
           const visibleIds = sorted.map(t => t.id);
           const selectedHere = selectedIds.filter(id => visibleIds.includes(id));
           const allSelected = visibleIds.length > 0 && selectedHere.length === visibleIds.length;
@@ -1277,17 +1336,41 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
 
           return (
             <>
-              {/* Filter Bar */}
-              <div style={{ padding:'12px 16px', background: CREAM, borderBottom:`1px solid ${BORDER}`, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-                <span style={{ fontSize:'0.78rem', fontWeight:700, color: TXT_LIGHT }}>FILTER:</span>
-                <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} style={{ padding:'4px 8px', fontSize:'0.82rem' }}>
-                  <option value="all">All months</option>
-                  {MONTHS.map((m,i) => <option key={i} value={i}>{m}</option>)}
-                </select>
-                <select value={filterYear} onChange={e=>setFilterYear(parseInt(e.target.value))} style={{ padding:'4px 8px', fontSize:'0.82rem' }}>
-                  {[2024,2025,2026].map(y => <option key={y} value={y}>{y}</option>)}
-                </select>
-                <span style={{ fontSize:'0.82rem', color: TXT_LIGHT, marginLeft:'auto' }}>{filtered.length} transactions · {fmt(filtered.filter(t=>t.type==='income').reduce((s,t)=>s+parseFloat(t.amount||0),0))} income</span>
+              {/* Search & Filter Bar */}
+              <div style={{ padding:'12px 16px', background: CREAM, borderBottom:`1px solid ${BORDER}` }}>
+                <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:8 }}>
+                  <input type="text" placeholder="🔍 Search description, donor, category, amount..." value={searchText} onChange={e=>setSearchText(e.target.value)} style={{ flex:1, padding:'8px 12px', fontSize:'0.88rem', borderRadius:6 }} />
+                  {(searchText || filterMonth!=='all' || filterDonor!=='all' || filterCategory!=='all' || filterType!=='all') && (
+                    <button onClick={()=>{setSearchText(''); setFilterMonth('all'); setFilterDonor('all'); setFilterCategory('all'); setFilterType('all');}} style={{ padding:'6px 10px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, background:'#fff', color: RED, border:`1px solid ${BORDER}`, cursor:'pointer' }}>✕ Clear filters</button>
+                  )}
+                </div>
+                <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                  <span style={{ fontSize:'0.72rem', fontWeight:700, color: TXT_LIGHT }}>FILTER:</span>
+                  <select value={filterType} onChange={e=>setFilterType(e.target.value)} style={{ padding:'4px 8px', fontSize:'0.82rem' }}>
+                    <option value="all">All types</option>
+                    <option value="income">💵 Income only</option>
+                    <option value="expense">🧾 Expense only</option>
+                  </select>
+                  <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} style={{ padding:'4px 8px', fontSize:'0.82rem' }}>
+                    <option value="all">All months</option>
+                    {MONTHS.map((m,i) => <option key={i} value={i}>{m}</option>)}
+                  </select>
+                  <select value={filterYear} onChange={e=>setFilterYear(parseInt(e.target.value))} style={{ padding:'4px 8px', fontSize:'0.82rem' }}>
+                    {[2024,2025,2026].map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                  <select value={filterDonor} onChange={e=>setFilterDonor(e.target.value)} style={{ padding:'4px 8px', fontSize:'0.82rem', maxWidth:180 }}>
+                    <option value="all">All donors</option>
+                    <option value="none">⚠ No donor</option>
+                    {[...donors].sort((a,b)=>a.name.localeCompare(b.name)).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                  <select value={filterCategory} onChange={e=>setFilterCategory(e.target.value)} style={{ padding:'4px 8px', fontSize:'0.82rem', maxWidth:180 }}>
+                    <option value="all">All categories</option>
+                    {[...new Set(transactions.map(t => t.category).filter(Boolean))].sort().map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <span style={{ fontSize:'0.82rem', color: TXT_LIGHT, marginLeft:'auto' }}>
+                    {filtered.length} txs · {fmt(filtered.filter(t=>t.type==='income').reduce((s,t)=>s+parseFloat(t.amount||0),0))} income · {fmt(filtered.filter(t=>t.type==='expense').reduce((s,t)=>s+parseFloat(t.amount||0),0))} exp
+                  </span>
+                </div>
               </div>
 
               {/* Bulk Action Bar */}
@@ -1309,7 +1392,25 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
                       else setSelectedIds(prev => prev.filter(id => !visibleIds.includes(id)));
                     }} />
                   </th>
-                  {['Date','Type','Description','Donor','Category','Amount',''].map(h => <th key={h} style={{ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase', textAlign:'left' }}>{h}</th>)}
+                  {(() => {
+                    const handleSort = (field) => {
+                      if (sortField === field) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+                      else { setSortField(field); setSortDir('asc'); }
+                    };
+                    const sortIcon = (field) => sortField !== field ? '⇅' : (sortDir === 'asc' ? '↑' : '↓');
+                    const headerStyle = (field) => ({ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: sortField===field ? NAVY : TXT_LIGHT, textTransform:'uppercase', textAlign:'left', cursor:'pointer', userSelect:'none' });
+                    return (
+                      <>
+                        <th style={headerStyle('date')} onClick={()=>handleSort('date')}>Date {sortIcon('date')}</th>
+                        <th style={headerStyle('type')} onClick={()=>handleSort('type')}>Type {sortIcon('type')}</th>
+                        <th style={headerStyle('desc')} onClick={()=>handleSort('desc')}>Description {sortIcon('desc')}</th>
+                        <th style={headerStyle('donor')} onClick={()=>handleSort('donor')}>Donor {sortIcon('donor')}</th>
+                        <th style={headerStyle('cat')} onClick={()=>handleSort('cat')}>Category {sortIcon('cat')}</th>
+                        <th style={headerStyle('amt')} onClick={()=>handleSort('amt')}>Amount {sortIcon('amt')}</th>
+                        <th></th>
+                      </>
+                    );
+                  })()}
                 </tr></thead>
                 <tbody>
                   {sorted.length === 0 && <tr><td colSpan={8} style={{ padding:'2rem', textAlign:'center', color: TXT_LIGHT }}>No transactions match the filter</td></tr>}
@@ -1367,6 +1468,10 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
   const [showImport, setShowImport] = useState(false);
   const [importRows, setImportRows] = useState([]);
   const [selectedDonorIds, setSelectedDonorIds] = useState([]);
+  const [donorSearch, setDonorSearch] = useState('');
+  const [donorSortField, setDonorSortField] = useState('name');
+  const [donorSortDir, setDonorSortDir] = useState('asc');
+  const [editingDonor, setEditingDonor] = useState(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -1534,9 +1639,18 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
 
   const handleAdd = async () => {
     if (!name) return;
-    const newDonor = { id: 'donor_' + Date.now(), user_id: user.id, name, email, phone, address, total_given: 0 };
-    setDonors(p => [...p, newDonor]);
-    try { const sb = await getSupabase(); await sb.from('ksp_donors').insert(newDonor); } catch(e) {}
+    if (editingDonor) {
+      // Update existing
+      const updated = { name, email, phone, address };
+      setDonors(p => p.map(d => d.id === editingDonor.id ? { ...d, ...updated } : d));
+      try { const sb = await getSupabase(); await sb.from('ksp_donors').update(updated).eq('id', editingDonor.id); } catch(e) { console.log('Update donor:', e); }
+      setEditingDonor(null);
+    } else {
+      // Create new
+      const newDonor = { id: 'donor_' + Date.now(), user_id: user.id, name, email, phone, address, total_given: 0 };
+      setDonors(p => [...p, newDonor]);
+      try { const sb = await getSupabase(); await sb.from('ksp_donors').insert(newDonor); } catch(e) {}
+    }
     setShowAdd(false); setName(''); setEmail(''); setPhone(''); setAddress('');
   };
 
@@ -1642,7 +1756,7 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
 
       {showAdd && (
         <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${GOLD}` }}>
-          <h3 style={{ marginBottom:'1rem' }}>New {orgConfig.donorLabel.slice(0,-1)}</h3>
+          <h3 style={{ marginBottom:'1rem' }}>{editingDonor ? `✏️ Edit ${orgConfig.donorLabel.slice(0,-1)}` : `New ${orgConfig.donorLabel.slice(0,-1)}`}</h3>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem', marginBottom:'1rem' }}>
             <input style={{ width:'100%' }} value={name} onChange={e=>setName(e.target.value)} placeholder="Full name" />
             <input style={{ width:'100%' }} type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email (for statements)" />
@@ -1650,8 +1764,8 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
             <input style={{ width:'100%' }} value={address} onChange={e=>setAddress(e.target.value)} placeholder="Mailing address" />
           </div>
           <div style={{ display:'flex', gap:8 }}>
-            <button className="btn btn-navy" onClick={handleAdd}>✓ Save</button>
-            <button className="btn btn-outline" onClick={()=>setShowAdd(false)}>Cancel</button>
+            <button className="btn btn-navy" onClick={handleAdd}>{editingDonor ? '✓ Save Changes' : '✓ Save'}</button>
+            <button className="btn btn-outline" onClick={()=>{ setShowAdd(false); setEditingDonor(null); setName(''); setEmail(''); setPhone(''); setAddress(''); }}>Cancel</button>
           </div>
         </div>
       )}
@@ -1664,6 +1778,13 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
           </div>
         ) : (
           <>
+            {/* Search bar */}
+            <div style={{ padding:'12px 16px', background: CREAM, borderBottom:`1px solid ${BORDER}`, display:'flex', gap:8, alignItems:'center' }}>
+              <input type="text" placeholder={`🔍 Search ${orgConfig.donorLabel.toLowerCase()} by name, email, phone...`} value={donorSearch} onChange={e=>setDonorSearch(e.target.value)} style={{ flex:1, padding:'8px 12px', fontSize:'0.88rem', borderRadius:6 }} />
+              {donorSearch && <button onClick={()=>setDonorSearch('')} style={{ padding:'6px 10px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, background:'#fff', color: RED, border:`1px solid ${BORDER}`, cursor:'pointer' }}>✕ Clear</button>}
+              <span style={{ fontSize:'0.82rem', color: TXT_LIGHT }}>{donors.length} total</span>
+            </div>
+
             {selectedDonorIds.length > 0 && (
               <div style={{ background: GOLD_PALE, padding:'10px 14px', borderBottom:`1px solid ${GOLD}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                 <span style={{ fontSize:'0.85rem', fontWeight:700, color:'#8B6914' }}>✓ {selectedDonorIds.length} selected</span>
@@ -1673,37 +1794,80 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
                 </div>
               </div>
             )}
-            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.9rem' }}>
-              <thead><tr style={{ borderBottom:`1px solid ${BORDER}`, background: CREAM }}>
-                <th style={{ padding:'10px 8px 10px 14px', width:30 }}>
-                  <input type="checkbox" checked={selectedDonorIds.length === donors.length && donors.length > 0} onChange={e => setSelectedDonorIds(e.target.checked ? donors.map(d => d.id) : [])} />
-                </th>
-                {['Name','Email','Phone','Total Given','# Gifts',''].map(h => <th key={h} style={{ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase', textAlign:'left' }}>{h}</th>)}
-              </tr></thead>
-              <tbody>
-                {donors.map(d => {
-                  const total = donorTotals[d.id] || 0;
-                  const gifts = transactions.filter(t => t.donor_id === d.id).length;
-                  const isChecked = selectedDonorIds.includes(d.id);
-                  return (
-                    <tr key={d.id} style={{ borderBottom:`1px solid #F4F6FA`, background: isChecked ? '#FDF7E8' : 'transparent' }}>
-                      <td style={{ padding:'10px 8px 10px 14px' }}>
-                        <input type="checkbox" checked={isChecked} onChange={e => {
-                          if (e.target.checked) setSelectedDonorIds(prev => [...prev, d.id]);
-                          else setSelectedDonorIds(prev => prev.filter(id => id !== d.id));
-                        }} />
-                      </td>
-                      <td style={{ padding:'12px', color: NAVY, fontWeight:600 }}>{d.name}</td>
-                      <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{d.email || '—'}</td>
-                      <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{d.phone || '—'}</td>
-                      <td style={{ padding:'12px', fontWeight:700, color: FOREST }}>{fmt(total)}</td>
-                      <td style={{ padding:'12px', color: TXT_LIGHT }}>{gifts}</td>
-                      <td style={{ padding:'12px' }}><button onClick={() => handleDeleteDonor(d.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color: TXT_LIGHT }}>🗑</button></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            {(() => {
+              // Filter + sort donors
+              const filtered = donors.filter(d => {
+                if (!donorSearch) return true;
+                const s = donorSearch.toLowerCase();
+                return (d.name||'').toLowerCase().includes(s) ||
+                       (d.email||'').toLowerCase().includes(s) ||
+                       (d.phone||'').toLowerCase().includes(s);
+              });
+              const sortMul = donorSortDir === 'asc' ? 1 : -1;
+              const sorted = [...filtered].sort((a,b) => {
+                if (donorSortField === 'name') return (a.name||'').localeCompare(b.name||'') * sortMul;
+                if (donorSortField === 'email') return (a.email||'').localeCompare(b.email||'') * sortMul;
+                if (donorSortField === 'total') {
+                  const at = donorTotals[a.id] || 0;
+                  const bt = donorTotals[b.id] || 0;
+                  return (at - bt) * sortMul;
+                }
+                if (donorSortField === 'gifts') {
+                  const ag = transactions.filter(t => t.donor_id === a.id).length;
+                  const bg = transactions.filter(t => t.donor_id === b.id).length;
+                  return (ag - bg) * sortMul;
+                }
+                return 0;
+              });
+              const handleSort = (field) => {
+                if (donorSortField === field) setDonorSortDir(donorSortDir === 'asc' ? 'desc' : 'asc');
+                else { setDonorSortField(field); setDonorSortDir('asc'); }
+              };
+              const sortIcon = (field) => donorSortField !== field ? '⇅' : (donorSortDir === 'asc' ? '↑' : '↓');
+              const headerStyle = (field) => ({ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: donorSortField===field?NAVY:TXT_LIGHT, textTransform:'uppercase', textAlign:'left', cursor:'pointer', userSelect:'none' });
+              return (
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.9rem' }}>
+                  <thead><tr style={{ borderBottom:`1px solid ${BORDER}`, background: CREAM }}>
+                    <th style={{ padding:'10px 8px 10px 14px', width:30 }}>
+                      <input type="checkbox" checked={selectedDonorIds.length === sorted.length && sorted.length > 0} onChange={e => setSelectedDonorIds(e.target.checked ? sorted.map(d => d.id) : [])} />
+                    </th>
+                    <th style={headerStyle('name')} onClick={()=>handleSort('name')}>Name {sortIcon('name')}</th>
+                    <th style={headerStyle('email')} onClick={()=>handleSort('email')}>Email {sortIcon('email')}</th>
+                    <th style={{ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase', textAlign:'left' }}>Phone</th>
+                    <th style={headerStyle('total')} onClick={()=>handleSort('total')}>Total Given {sortIcon('total')}</th>
+                    <th style={headerStyle('gifts')} onClick={()=>handleSort('gifts')}># Gifts {sortIcon('gifts')}</th>
+                    <th></th>
+                  </tr></thead>
+                  <tbody>
+                    {sorted.length === 0 && <tr><td colSpan={7} style={{ padding:'2rem', textAlign:'center', color: TXT_LIGHT }}>No matches</td></tr>}
+                    {sorted.map(d => {
+                      const total = donorTotals[d.id] || 0;
+                      const gifts = transactions.filter(t => t.donor_id === d.id).length;
+                      const isChecked = selectedDonorIds.includes(d.id);
+                      return (
+                        <tr key={d.id} style={{ borderBottom:`1px solid #F4F6FA`, background: isChecked ? '#FDF7E8' : 'transparent' }}>
+                          <td style={{ padding:'10px 8px 10px 14px' }}>
+                            <input type="checkbox" checked={isChecked} onChange={e => {
+                              if (e.target.checked) setSelectedDonorIds(prev => [...prev, d.id]);
+                              else setSelectedDonorIds(prev => prev.filter(id => id !== d.id));
+                            }} />
+                          </td>
+                          <td style={{ padding:'12px', color: NAVY, fontWeight:600 }}>{d.name}</td>
+                          <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{d.email || '—'}</td>
+                          <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{d.phone || '—'}</td>
+                          <td style={{ padding:'12px', fontWeight:700, color: FOREST }}>{fmt(total)}</td>
+                          <td style={{ padding:'12px', color: TXT_LIGHT }}>{gifts}</td>
+                          <td style={{ padding:'12px', whiteSpace:'nowrap' }}>
+                            <button onClick={() => { setEditingDonor(d); setName(d.name); setEmail(d.email||''); setPhone(d.phone||''); setAddress(d.address||''); setShowAdd(true); }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color: NAVY, marginRight:4 }} title="Edit">✏️</button>
+                            <button onClick={() => handleDeleteDonor(d.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color: TXT_LIGHT }} title="Delete">🗑</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              );
+            })()}
           </>
         )}
       </div>
@@ -1786,8 +1950,11 @@ function ReportsTab({ transactions, orgConfig }) {
   const yearTxs = transactions.filter(t => new Date(t.date).getFullYear() === year);
   const incomeByCategory = {};
   const expensesByCategory = {};
+  const excludedByCategory = {};  // Tithely deposits, transfers, etc.
   yearTxs.forEach(t => {
-    if (t.type === 'income') {
+    if (EXCLUDED_FROM_PL.includes(t.category)) {
+      excludedByCategory[t.category] = (excludedByCategory[t.category] || 0) + parseFloat(t.amount||0);
+    } else if (t.type === 'income') {
       incomeByCategory[t.category] = (incomeByCategory[t.category] || 0) + parseFloat(t.amount||0);
     } else {
       expensesByCategory[t.category] = (expensesByCategory[t.category] || 0) + parseFloat(t.amount||0);
@@ -1796,6 +1963,7 @@ function ReportsTab({ transactions, orgConfig }) {
 
   const totalIncome = Object.values(incomeByCategory).reduce((s,v)=>s+v, 0);
   const totalExpenses = Object.values(expensesByCategory).reduce((s,v)=>s+v, 0);
+  const totalExcluded = Object.values(excludedByCategory).reduce((s,v)=>s+v, 0);
   const net = totalIncome - totalExpenses;
 
   return (
@@ -1845,6 +2013,28 @@ function ReportsTab({ transactions, orgConfig }) {
             <span style={{ fontWeight:700, color: NAVY, fontSize:'1.05rem' }}>{orgConfig.termsFor.net}</span>
             <span style={{ fontWeight:700, color: net>=0?FOREST:RED, fontSize:'1.3rem', fontFamily:'Georgia,serif' }}>{fmt(net)}</span>
           </div>
+
+          {/* Excluded items (transfers, batch deposits) — shown but NOT counted */}
+          {Object.keys(excludedByCategory).length > 0 && (
+            <div style={{ marginTop:'1.5rem' }}>
+              <h4 style={{ fontSize:'0.95rem', color: TXT_LIGHT, marginBottom:'0.5rem', borderBottom:`1px dashed ${BORDER}`, paddingBottom:6 }}>
+                📋 NOT INCLUDED IN P&L (Bookkeeping Only)
+              </h4>
+              <p style={{ fontSize:'0.78rem', color: TXT_LIGHT, marginBottom:8, fontStyle:'italic' }}>
+                These transactions are bank deposits or transfers already counted via individual entries. Showing them here for audit purposes only.
+              </p>
+              {Object.entries(excludedByCategory).sort((a,b)=>b[1]-a[1]).map(([cat, amt]) => (
+                <div key={cat} style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', fontSize:'0.85rem', color: TXT_LIGHT }}>
+                  <span>{cat}</span>
+                  <span style={{ textDecoration:'line-through' }}>{fmt(amt)}</span>
+                </div>
+              ))}
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderTop:`1px dashed ${BORDER}`, marginTop:6, fontSize:'0.85rem', color: TXT_LIGHT }}>
+                <span style={{ fontWeight:700 }}>Total Excluded</span>
+                <span style={{ fontWeight:700, textDecoration:'line-through' }}>{fmt(totalExcluded)}</span>
+              </div>
+            </div>
+          )}
 
           <button className="btn btn-outline" style={{ marginTop:'1rem', width:'100%' }} onClick={()=>window.print()}>🖨️ Print / Export PDF</button>
         </div>
