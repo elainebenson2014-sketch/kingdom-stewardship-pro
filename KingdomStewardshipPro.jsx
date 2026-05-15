@@ -631,7 +631,7 @@ function Dashboard({ user, onLogout }) {
       <main style={{ flex:1, padding:'2rem', overflow:'auto' }}>
         {tab === 'overview' && <OverviewTab transactions={transactions} donors={donors} funds={funds} orgConfig={orgConfig} setTab={setTab} />}
         {tab === 'transactions' && <TransactionsTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} setDonors={setDonors} funds={funds} orgConfig={orgConfig} />}
-        {tab === 'donors' && <DonorsTab user={user} donors={donors} setDonors={setDonors} transactions={transactions} orgConfig={orgConfig} />}
+        {tab === 'donors' && <DonorsTab user={user} donors={donors} setDonors={setDonors} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
         {tab === 'funds' && orgConfig.hasFunds && <FundsTab user={user} funds={funds} setFunds={setFunds} transactions={transactions} />}
         {tab === 'reports' && <ReportsTab transactions={transactions} orgConfig={orgConfig} />}
         {tab === 'statements' && <StatementsTab user={user} donors={donors} transactions={transactions} orgConfig={orgConfig} orgName={orgName} />}
@@ -743,9 +743,15 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = ev => {
-      const lines = ev.target.result.split('\n').filter(l => l.trim());
-      if (lines.length < 2) { alert('CSV is empty'); return; }
-      const header = lines[0].split(',').map(x => x.replace(/"/g,'').trim().toLowerCase());
+      const text = ev.target.result;
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) { alert('File is empty'); return; }
+      // Auto-detect delimiter: tab or comma
+      const firstLine = lines[0];
+      const tabCount = (firstLine.match(/\t/g) || []).length;
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const DELIM = tabCount > commaCount ? '\t' : ',';
+      const header = lines[0].split(DELIM).map(x => x.replace(/"/g,'').trim().toLowerCase());
 
       // ===== TITHELY FORMAT DETECTION =====
       const isTithely = header.includes('giving type') &&
@@ -786,16 +792,23 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
         const refundIdx = findCol(['refund / remove','refund','remove']);
 
         parsed = lines.slice(1).map((l, idx) => {
-          // Properly handle quoted CSV (Tithely has commas in addresses)
-          const c = [];
-          let cur = '', inQ = false;
-          for (let i = 0; i < l.length; i++) {
-            const ch = l[i];
-            if (ch === '"') { inQ = !inQ; continue; }
-            if (ch === ',' && !inQ) { c.push(cur.trim()); cur = ''; continue; }
-            cur += ch;
+          // Properly handle quoted CSV/TSV (Tithely has commas in addresses)
+          let c;
+          if (DELIM === '\t') {
+            // Tab-separated: simple split
+            c = l.split('\t').map(x => x.replace(/"/g,'').trim());
+          } else {
+            // Comma-separated: handle quoted commas
+            c = [];
+            let cur = '', inQ = false;
+            for (let i = 0; i < l.length; i++) {
+              const ch = l[i];
+              if (ch === '"') { inQ = !inQ; continue; }
+              if (ch === ',' && !inQ) { c.push(cur.trim()); cur = ''; continue; }
+              cur += ch;
+            }
+            c.push(cur.trim());
           }
-          c.push(cur.trim());
 
           // Skip refunded entries
           if (refundIdx >= 0 && c[refundIdx] && /yes|true|refund/i.test(c[refundIdx])) return null;
@@ -889,7 +902,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
         const donorIdx = findCol(['donor','member','customer','from','contributor','giver']);
 
         parsed = lines.slice(1).map((l, idx) => {
-          const c = l.split(',').map(x => x.replace(/"/g,'').trim());
+          const c = l.split(DELIM).map(x => x.replace(/"/g,'').trim());
           let date = (dateIdx >= 0 ? c[dateIdx] : c[0]) || '';
           if (date.includes('/')) {
             const parts = date.split('/');
@@ -1270,7 +1283,16 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
                         <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{t.date}</td>
                         <td style={{ padding:'12px' }}><span style={{ background: t.type==='income'?SAGE:RED_PALE, color: t.type==='income'?FOREST:RED, padding:'2px 8px', borderRadius:6, fontSize:'0.72rem', fontWeight:700 }}>{t.type==='income'?'IN':'OUT'}</span></td>
                         <td style={{ padding:'12px', color: NAVY }}>{t.description || '—'}</td>
-                        <td style={{ padding:'12px', color: donor ? NAVY : '#B53232', fontSize:'0.85rem', fontWeight: donor ? 600 : 400, fontStyle: donor ? 'normal' : 'italic' }}>{donor ? donor.name : '⚠ none'}</td>
+                        <td style={{ padding:'12px' }}>
+                          <select value={t.donor_id || ''} onChange={async (e) => {
+                            const newDonorId = e.target.value || null;
+                            setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, donor_id: newDonorId } : x));
+                            try { const sb = await getSupabase(); await sb.from('ksp_transactions').update({ donor_id: newDonorId }).eq('id', t.id); } catch(err) { console.log('Update donor:', err); }
+                          }} style={{ background: donor ? '#fff' : '#FFF3F3', color: donor ? NAVY : RED, padding:'4px 8px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, border:`1px solid ${donor ? BORDER : RED}`, cursor:'pointer', maxWidth:160 }}>
+                            <option value="">⚠ None</option>
+                            {donors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                          </select>
+                        </td>
                         <td style={{ padding:'12px' }}>
                           <select value={t.category || 'Other'} onChange={async (e) => {
                             const newCat = e.target.value;
@@ -1296,7 +1318,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
 }
 
 // ============ DONORS TAB ============
-function DonorsTab({ user, donors, setDonors, transactions, orgConfig }) {
+function DonorsTab({ user, donors, setDonors, transactions, setTransactions, orgConfig }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importRows, setImportRows] = useState([]);
@@ -1309,10 +1331,20 @@ function DonorsTab({ user, donors, setDonors, transactions, orgConfig }) {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = ev => {
-      const lines = ev.target.result.split('\n').filter(l => l.trim());
-      if (lines.length < 2) { alert('CSV is empty'); return; }
-      const header = lines[0].split(',').map(x => x.replace(/"/g,'').trim().toLowerCase());
+      const text = ev.target.result;
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) { alert('File is empty'); return; }
+      // Auto-detect delimiter
+      const firstLine = lines[0];
+      const tabCount = (firstLine.match(/\t/g) || []).length;
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const DELIM = tabCount > commaCount ? '\t' : ',';
+      const header = lines[0].split(DELIM).map(x => x.replace(/"/g,'').trim().toLowerCase());
       const findCol = (names) => {
+        for (const n of names) {
+          const idx = header.findIndex(h => h === n);
+          if (idx >= 0) return idx;
+        }
         for (const n of names) {
           const idx = header.findIndex(h => h.includes(n));
           if (idx >= 0) return idx;
@@ -1322,21 +1354,24 @@ function DonorsTab({ user, donors, setDonors, transactions, orgConfig }) {
       const nameIdx = findCol(['name','full name','donor','member','contact']);
       const firstNameIdx = findCol(['first name','firstname','first']);
       const lastNameIdx = findCol(['last name','lastname','last','surname']);
-      const emailIdx = findCol(['email','e-mail']);
+      const emailIdx = findCol(['email','e-mail','contact email']);
       const phoneIdx = findCol(['phone','mobile','cell','tel']);
       const addrIdx = findCol(['address','street','mailing']);
       const cityIdx = findCol(['city']);
-      const stateIdx = findCol(['state','province']);
-      const zipIdx = findCol(['zip','postal']);
+      const stateIdx = findCol(['state / province','state','province']);
+      const zipIdx = findCol(['postal','zip']);
 
       const parsed = lines.slice(1).map((l, idx) => {
-        const c = l.split(',').map(x => x.replace(/"/g,'').trim());
-        // Build name
+        const c = l.split(DELIM).map(x => x.replace(/"/g,'').trim());
+        // Build name (prefer First+Last over just "Name" to get full names)
         let fullName = '';
-        if (nameIdx >= 0 && c[nameIdx]) fullName = c[nameIdx];
-        else if (firstNameIdx >= 0 || lastNameIdx >= 0) {
-          fullName = `${firstNameIdx >= 0 ? c[firstNameIdx] || '' : ''} ${lastNameIdx >= 0 ? c[lastNameIdx] || '' : ''}`.trim();
-        } else if (c[0]) fullName = c[0];
+        if (firstNameIdx >= 0 || lastNameIdx >= 0) {
+          const first = firstNameIdx >= 0 ? (c[firstNameIdx] || '').trim() : '';
+          const last = lastNameIdx >= 0 ? (c[lastNameIdx] || '').trim() : '';
+          fullName = `${first} ${last}`.trim();
+        }
+        if (!fullName && nameIdx >= 0 && c[nameIdx]) fullName = c[nameIdx];
+        if (!fullName && c[0]) fullName = c[0];
         if (!fullName) return null;
         // Build address
         let fullAddr = '';
@@ -1401,6 +1436,45 @@ function DonorsTab({ user, donors, setDonors, transactions, orgConfig }) {
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem' }}>
         <h2 style={{ fontSize:'1.6rem' }}>👥 {orgConfig.donorLabel}</h2>
         <div style={{ display:'flex', gap:8 }}>
+          <button className="btn btn-outline" onClick={async () => {
+            // Re-link transactions to donors by matching name
+            const unlinkedTxs = transactions.filter(t => t.type === 'income' && !t.donor_id);
+            if (unlinkedTxs.length === 0) {
+              alert('All transactions are already linked to donors. ✓');
+              return;
+            }
+            const updates = [];
+            unlinkedTxs.forEach(tx => {
+              // Try to match by description (which often contains the donor name in Tithely format)
+              // Or by checking if description contains donor name
+              const desc = (tx.description || '').toLowerCase();
+              for (const d of donors) {
+                const lname = d.name.toLowerCase();
+                if (desc.includes(lname) || lname.includes(desc.split(' ')[0])) {
+                  updates.push({ id: tx.id, donor_id: d.id });
+                  break;
+                }
+              }
+            });
+            if (updates.length === 0) {
+              alert(`Found ${unlinkedTxs.length} unlinked transactions but couldn't match them to donors by name. You'll need to assign them manually in the Transactions tab.`);
+              return;
+            }
+            if (!confirm(`Found ${updates.length} matches out of ${unlinkedTxs.length} unlinked. Link them now?`)) return;
+            // Update local state
+            setTransactions(prev => prev.map(t => {
+              const match = updates.find(u => u.id === t.id);
+              return match ? { ...t, donor_id: match.donor_id } : t;
+            }));
+            // Save to Supabase
+            try {
+              const sb = await getSupabase();
+              for (const u of updates) {
+                await sb.from('ksp_transactions').update({ donor_id: u.donor_id }).eq('id', u.id);
+              }
+              alert(`✓ Linked ${updates.length} transactions to donors!`);
+            } catch(e) { console.log('Re-link save:', e); }
+          }} style={{ background: GOLD_PALE, color:'#8B6914', borderColor: GOLD }}>🔗 Re-link Donors</button>
           <label className="btn btn-outline" style={{ cursor:'pointer' }}>
             📥 Import CSV
             <input type="file" accept=".csv" style={{ display:'none' }} onChange={handleCSVUpload} />
