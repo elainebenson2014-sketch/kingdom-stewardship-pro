@@ -173,8 +173,9 @@ const guessIncomeCategory = (desc, orgType) => {
     if (/(grant)/i.test(d)) return 'Grants';
     // Auto-detect batch payouts from giving platforms (these are excluded from P&L to avoid double-counting)
     if (/(tithely|tithe\.ly|wave sv|wave sa|wave dep)/i.test(d)) return 'Tithely Deposit';
-    if (/(stripe.*payout|stripe.*deposit|stripe transfer)/i.test(d)) return 'Stripe Deposit';
-    if (/(paypal.*transfer|paypal.*deposit|paypal.*payout)/i.test(d)) return 'PayPal Deposit';
+    if (/(stripe)/i.test(d)) return 'Stripe Deposit';
+    if (/(paypal\b|paypal si|paypalsi|pp\*paypal)/i.test(d)) return 'PayPal Deposit';
+    if (/(venmo|cash app|zelle.*receive)/i.test(d)) return 'Online Giving';
     if (/(online|electronic|ach)/i.test(d)) return 'Online Giving';
     return 'Offerings';
   }
@@ -755,6 +756,11 @@ function StatCard({ label, value, color, sub }) {
 function TransactionsTab({ user, transactions, setTransactions, donors, setDonors, funds, orgConfig }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkRows, setBulkRows] = useState([]);
+  const [bulkDate, setBulkDate] = useState(new Date().toISOString().slice(0,10));
+  const [bulkCategory, setBulkCategory] = useState('Tithes');
+  const [bulkServiceNote, setBulkServiceNote] = useState('Sunday Service');
   const [importRows, setImportRows] = useState([]);
   const [importFundId, setImportFundId] = useState(funds[0]?.id || '');
   const [selectedIds, setSelectedIds] = useState([]);
@@ -1169,9 +1175,10 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
 
   return (
     <div>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:8 }}>
         <h2 style={{ fontSize:'1.6rem' }}>💰 Transactions</h2>
-        <div style={{ display:'flex', gap:8 }}>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          <button className="btn btn-outline" onClick={()=>setShowBulk(true)} style={{ background: GOLD_PALE, color:'#8B6914', borderColor: GOLD }}>⚡ Bulk Entry</button>
           <label className="btn btn-outline" style={{ cursor:'pointer' }}>
             📥 Import CSV
             <input type="file" accept=".csv" style={{ display:'none' }} onChange={handleCSVUpload} />
@@ -1179,6 +1186,118 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
           <button className="btn btn-navy" onClick={()=>setShowAdd(true)}>+ Add Transaction</button>
         </div>
       </div>
+
+      {showBulk && (
+        <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${GOLD}` }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
+            <h3>⚡ Bulk Entry — Cash &amp; Check Gifts</h3>
+            <button onClick={()=>{ setShowBulk(false); setBulkRows([]); }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18 }}>×</button>
+          </div>
+          <div style={{ background:'#F0F8FF', padding:10, borderRadius:8, marginBottom:'1rem', fontSize:'0.85rem', color: NAVY }}>
+            💡 <strong>Quick entry for service offerings:</strong> All gifts share the same date, category, and service. Just enter donor + amount for each row. Perfect for Sunday cash & check offerings.
+          </div>
+
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.75rem', marginBottom:'1rem' }}>
+            <div>
+              <label style={{ fontSize:'0.78rem', fontWeight:700, display:'block', marginBottom:4 }}>Date</label>
+              <input type="date" style={{ width:'100%' }} value={bulkDate} onChange={e=>setBulkDate(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize:'0.78rem', fontWeight:700, display:'block', marginBottom:4 }}>Category</label>
+              <select style={{ width:'100%' }} value={bulkCategory} onChange={e=>setBulkCategory(e.target.value)}>
+                {orgConfig.incomeCategories.filter(c => !EXCLUDED_FROM_PL.includes(c)).map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize:'0.78rem', fontWeight:700, display:'block', marginBottom:4 }}>Service / Event Note</label>
+              <input style={{ width:'100%' }} value={bulkServiceNote} onChange={e=>setBulkServiceNote(e.target.value)} placeholder="e.g., Sunday Morning Service" />
+            </div>
+          </div>
+
+          <div style={{ maxHeight:400, overflow:'auto', marginBottom:'1rem' }}>
+            <table style={{ width:'100%', fontSize:'0.88rem', borderCollapse:'collapse' }}>
+              <thead><tr style={{ background: CREAM, position:'sticky', top:0, borderBottom:`1px solid ${BORDER}` }}>
+                <th style={{ padding:8, textAlign:'left', width:50 }}>#</th>
+                <th style={{ padding:8, textAlign:'left' }}>Donor</th>
+                <th style={{ padding:8, textAlign:'left' }}>Method / Note (optional)</th>
+                <th style={{ padding:8, textAlign:'right', width:140 }}>Amount</th>
+                <th style={{ padding:8, width:40 }}></th>
+              </tr></thead>
+              <tbody>
+                {bulkRows.length === 0 && <tr><td colSpan={5} style={{ padding:'1.5rem', textAlign:'center', color: TXT_LIGHT }}>Click "+ Add Row" below to start entering gifts</td></tr>}
+                {bulkRows.map((row, i) => (
+                  <tr key={i} style={{ borderBottom:`1px solid #F4F6FA` }}>
+                    <td style={{ padding:6, color: TXT_LIGHT, fontWeight:700 }}>{i+1}</td>
+                    <td style={{ padding:6 }}>
+                      <select value={row.donor_id} onChange={e=>setBulkRows(p=>p.map((x,j)=>j===i?{...x, donor_id:e.target.value}:x))} style={{ width:'100%', padding:'4px 6px', fontSize:'0.85rem' }}>
+                        <option value="">— Choose donor —</option>
+                        {[...donors].sort((a,b)=>a.name.localeCompare(b.name)).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                    </td>
+                    <td style={{ padding:6 }}>
+                      <input value={row.note} onChange={e=>setBulkRows(p=>p.map((x,j)=>j===i?{...x, note:e.target.value}:x))} placeholder="Cash / Check #1234" style={{ width:'100%', padding:'4px 6px', fontSize:'0.85rem' }} />
+                    </td>
+                    <td style={{ padding:6 }}>
+                      <input type="number" step="0.01" value={row.amount} onChange={e=>setBulkRows(p=>p.map((x,j)=>j===i?{...x, amount:e.target.value}:x))} placeholder="0.00" style={{ width:'100%', padding:'4px 6px', fontSize:'0.85rem', textAlign:'right' }} />
+                    </td>
+                    <td style={{ padding:6 }}>
+                      <button onClick={()=>setBulkRows(p=>p.filter((_,j)=>j!==i))} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color: RED }}>×</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display:'flex', gap:8, marginBottom:'1rem', flexWrap:'wrap' }}>
+            <button className="btn btn-outline" onClick={()=>setBulkRows(p=>[...p, { donor_id:'', note:'', amount:'' }])}>+ Add Row</button>
+            <button className="btn btn-outline" onClick={()=>setBulkRows(p=>[...p, ...Array(5).fill(null).map(()=>({ donor_id:'', note:'', amount:'' }))])}>+ Add 5 Rows</button>
+            {bulkRows.length > 0 && <button className="btn btn-outline" onClick={()=>{ if(confirm('Clear all rows?')) setBulkRows([]); }} style={{ color: RED }}>Clear All</button>}
+          </div>
+
+          {bulkRows.length > 0 && (
+            <div style={{ background: SAGE, padding:12, borderRadius:8, marginBottom:'1rem', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <span style={{ fontWeight:700, color: FOREST }}>
+                {bulkRows.filter(r => r.donor_id && parseFloat(r.amount) > 0).length} valid gifts ready
+              </span>
+              <span style={{ fontWeight:700, color: FOREST, fontSize:'1.1rem', fontFamily:'Georgia,serif' }}>
+                Total: {fmt(bulkRows.reduce((s,r) => s + (parseFloat(r.amount)||0), 0))}
+              </span>
+            </div>
+          )}
+
+          <div style={{ display:'flex', gap:8 }}>
+            <button className="btn btn-navy" onClick={async () => {
+              const valid = bulkRows.filter(r => r.donor_id && parseFloat(r.amount) > 0);
+              if (valid.length === 0) { alert('No valid gifts to save. Each row needs a donor and amount.'); return; }
+              const txs = valid.map((r, idx) => ({
+                id: 'tx_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).slice(2,8),
+                user_id: user.id,
+                type: 'income',
+                date: bulkDate,
+                amount: parseFloat(r.amount),
+                category: bulkCategory,
+                description: bulkServiceNote + (r.note ? ' — ' + r.note : ''),
+                donor_id: r.donor_id,
+                fund_id: null,
+                notes: '',
+              }));
+              setTransactions(p => [...p, ...txs]);
+              setShowBulk(false);
+              setBulkRows([]);
+              alert(`✓ Recorded ${valid.length} gifts totaling ${fmt(txs.reduce((s,t)=>s+t.amount,0))}!`);
+              try {
+                const sb = await getSupabase();
+                for (let i = 0; i < txs.length; i += 100) {
+                  const chunk = txs.slice(i, i+100);
+                  await sb.from('ksp_transactions').insert(chunk);
+                }
+              } catch(e) { console.log('Bulk save:', e); }
+            }}>✓ Save {bulkRows.filter(r => r.donor_id && parseFloat(r.amount) > 0).length} Gifts</button>
+            <button className="btn btn-outline" onClick={()=>{ setShowBulk(false); setBulkRows([]); }}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       {showImport && (
         <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${GOLD}` }}>
