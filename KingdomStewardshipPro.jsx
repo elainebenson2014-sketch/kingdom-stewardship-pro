@@ -773,6 +773,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
       let parsed;
       if (isTithely) {
         // Tithely-specific parsing
+        const txIdIdx = findCol(['transaction id']);
         const amtIdx = findCol(['amount']);
         const netAmtIdx = findCol(['net amount']);
         const firstNameIdx = findCol(['first name']);
@@ -879,11 +880,14 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
 
           const desc = givingType + (memo ? ' — ' + memo : '') + (method ? ' (' + method + ')' : '');
 
+          // Use Tithely Transaction ID as our ID — but make it short and safe
+          const tithelyTxId = txIdIdx >= 0 ? (c[txIdIdx] || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 30) : '';
+          const rowId = tithelyTxId ? 'thly_' + tithelyTxId : 'tx_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).slice(2,10);
+
           return {
-            id: 'tx_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).slice(2,10),
-            date, description: desc || 'Tithely import', amount: amt, type: 'income',
+            id: rowId,
+            date, description: (desc || 'Tithely import').slice(0, 500), amount: amt, type: 'income',
             category: chosenCat, donor_id: matchedDonorId, donorName,
-            // Extra Tithely fields to maybe auto-create donor
             _tithely: true,
             _email: emailIdx >= 0 ? c[emailIdx] : '',
             _phone: phoneIdx >= 0 ? c[phoneIdx] : '',
@@ -1017,23 +1021,37 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
 
     // Save to Supabase in the background (non-blocking)
     (async () => {
+      let successCount = 0;
+      let errorMessage = '';
       try {
         const sb = await getSupabase();
         if (newDonors.length > 0) {
-          // Batch insert donors in chunks of 100
           for (let i = 0; i < newDonors.length; i += 100) {
             const chunk = newDonors.slice(i, i+100);
-            await sb.from('ksp_donors').insert(chunk);
+            const { error } = await sb.from('ksp_donors').insert(chunk);
+            if (error) {
+              console.error('Donor insert error:', error);
+              errorMessage = 'Donor save error: ' + error.message;
+            }
           }
         }
-        // Batch insert transactions in chunks of 100
         for (let i = 0; i < toImport.length; i += 100) {
           const chunk = toImport.slice(i, i+100);
-          await sb.from('ksp_transactions').insert(chunk);
+          const { data, error } = await sb.from('ksp_transactions').insert(chunk).select();
+          if (error) {
+            console.error('Transaction insert error:', error);
+            errorMessage = 'Transaction save error: ' + error.message + ' (code: ' + (error.code || 'N/A') + ')';
+          } else {
+            successCount += chunk.length;
+          }
         }
-        console.log('✓ Saved to Supabase');
+        console.log('✓ Saved ' + successCount + ' transactions to Supabase');
+        if (errorMessage) {
+          alert('⚠️ Warning: ' + errorMessage + '\n\nSaved ' + successCount + ' of ' + toImport.length + ' transactions. Check the browser console for details.');
+        }
       } catch(e) {
         console.error('Supabase save error:', e);
+        alert('❌ Save failed: ' + (e.message || 'Unknown error') + '\n\nYour transactions are visible in the app but NOT saved. Check the browser console.');
       }
     })();
   };
@@ -1083,6 +1101,20 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
             <h3>📥 Review Import ({importRows.filter(r=>r.include).length} of {importRows.length} selected)</h3>
             <button onClick={()=>{ setShowImport(false); setImportRows([]); }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18 }}>×</button>
           </div>
+          {(() => {
+            const existingIds = new Set(transactions.map(t => t.id));
+            const dupCount = importRows.filter(r => existingIds.has(r.id)).length;
+            if (dupCount > 0) {
+              return (
+                <div style={{ background:'#FFF3F3', padding:10, borderRadius:8, marginBottom:'1rem', border:`1px solid ${RED}` }}>
+                  <strong style={{ color: RED }}>⚠️ {dupCount} transaction{dupCount!==1?'s':''} already imported (highlighted in red below)</strong>
+                  <p style={{ fontSize:'0.82rem', color: RED, marginTop:4 }}>These have been auto-deselected. Only NEW transactions will import.</p>
+                  <button onClick={() => setImportRows(prev => prev.map(r => existingIds.has(r.id) ? {...r, include: false} : r))} style={{ background: RED, color:'#fff', border:'none', padding:'5px 12px', borderRadius:6, fontSize:'0.78rem', fontWeight:700, cursor:'pointer', marginTop:6 }}>✓ Skip duplicates</button>
+                </div>
+              );
+            }
+            return null;
+          })()}
           {orgConfig.hasFunds && (
             <div style={{ marginBottom:'1rem' }}>
               <label style={{ fontSize:'0.78rem', fontWeight:700, display:'block', marginBottom:4 }}>Assign all to fund:</label>
@@ -1106,10 +1138,12 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
                 <th style={{ padding:6, textAlign:'right' }}>Amount</th>
               </tr></thead>
               <tbody>
-                {importRows.map((r, i) => (
-                  <tr key={r.id} style={{ borderBottom:`1px solid ${BORDER}`, background: r.include ? 'transparent' : '#F8F8F8' }}>
-                    <td style={{ padding:6 }}><input type="checkbox" checked={r.include} onChange={e=>setImportRows(p=>p.map((x,j)=>j===i?{...x, include:e.target.checked}:x))} /></td>
-                    <td style={{ padding:6 }}>{r.date}</td>
+                {importRows.map((r, i) => {
+                  const isDup = transactions.some(t => t.id === r.id);
+                  return (
+                  <tr key={r.id} style={{ borderBottom:`1px solid ${BORDER}`, background: isDup ? '#FFF3F3' : (r.include ? 'transparent' : '#F8F8F8') }}>
+                    <td style={{ padding:6 }}><input type="checkbox" disabled={isDup} checked={r.include && !isDup} onChange={e=>setImportRows(p=>p.map((x,j)=>j===i?{...x, include:e.target.checked}:x))} /></td>
+                    <td style={{ padding:6 }}>{r.date} {isDup && <span style={{ color: RED, fontWeight:700, fontSize:'0.7rem' }}> (DUP)</span>}</td>
                     <td style={{ padding:6 }}>{r.description.slice(0,40)}</td>
                     <td style={{ padding:6 }}>
                       <select value={r.type} onChange={e=>setImportRows(p=>p.map((x,j)=>j===i?{...x, type:e.target.value, category: e.target.value==='income'?orgConfig.incomeCategories[0]:'Other Expenses'}:x))} style={{ fontSize:'0.78rem', padding:'2px 4px' }}>
@@ -1130,7 +1164,8 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
                     </td>
                     <td style={{ padding:6, textAlign:'right', fontWeight:700, color: r.type==='income'?FOREST:RED }}>{fmt(r.amount)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
