@@ -1378,6 +1378,34 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
                 <div style={{ background: GOLD_PALE, padding:'10px 14px', borderBottom:`1px solid ${GOLD}`, display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
                   <span style={{ fontSize:'0.85rem', fontWeight:700, color:'#8B6914' }}>✓ {selectedHere.length} selected</span>
                   <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+                    <select onChange={async (e) => {
+                      const newCat = e.target.value;
+                      if (!newCat) return;
+                      if (!confirm(`Change category to "${newCat}" for ${selectedHere.length} transactions?`)) { e.target.value = ''; return; }
+                      setTransactions(prev => prev.map(t => selectedHere.includes(t.id) ? { ...t, category: newCat } : t));
+                      try {
+                        const sb = await getSupabase();
+                        for (let i = 0; i < selectedHere.length; i += 100) {
+                          const chunk = selectedHere.slice(i, i+100);
+                          await sb.from('ksp_transactions').update({ category: newCat }).in('id', chunk);
+                        }
+                      } catch(err) { console.log('Bulk cat:', err); }
+                      e.target.value = '';
+                    }} defaultValue="" style={{ padding:'5px 8px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, background:'#fff', color: NAVY, border:`1px solid ${BORDER}`, cursor:'pointer', maxWidth:180 }}>
+                      <option value="">📂 Change category...</option>
+                      <optgroup label="Common">
+                        <option value="Tithely Deposit">📋 Tithely Deposit (excluded)</option>
+                        <option value="Stripe Deposit">📋 Stripe Deposit (excluded)</option>
+                        <option value="PayPal Deposit">📋 PayPal Deposit (excluded)</option>
+                        <option value="Transfer In">📋 Transfer In (excluded)</option>
+                      </optgroup>
+                      <optgroup label="Income">
+                        {orgConfig.incomeCategories.filter(c => !EXCLUDED_FROM_PL.includes(c)).map(c => <option key={c} value={c}>💵 {c}</option>)}
+                      </optgroup>
+                      <optgroup label="Expenses">
+                        {orgConfig.expenseCategories.map(c => <option key={c} value={c}>🧾 {c}</option>)}
+                      </optgroup>
+                    </select>
                     <button onClick={()=>setSelectedIds(prev => prev.filter(id => !visibleIds.includes(id)))} style={{ padding:'5px 10px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, background:'#fff', color: NAVY, border:`1px solid ${BORDER}`, cursor:'pointer' }}>Clear</button>
                     <button onClick={handleBulkDelete} style={{ padding:'5px 12px', borderRadius:6, fontSize:'0.78rem', fontWeight:700, background: RED, color:'#fff', border:'none', cursor:'pointer' }}>🗑 Delete {selectedHere.length} selected</button>
                   </div>
