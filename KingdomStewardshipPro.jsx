@@ -1357,10 +1357,81 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importRows, setImportRows] = useState([]);
+  const [selectedDonorIds, setSelectedDonorIds] = useState([]);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+
+  // Delete single donor
+  const handleDeleteDonor = async (id) => {
+    if (!confirm('Delete this donor? Their transactions will remain but be unlinked.')) return;
+    setDonors(p => p.filter(d => d.id !== id));
+    try { const sb = await getSupabase(); await sb.from('ksp_donors').delete().eq('id', id); } catch(e) { console.log('Delete donor:', e); }
+  };
+
+  // Bulk delete
+  const handleBulkDeleteDonors = async () => {
+    if (!confirm(`Delete ${selectedDonorIds.length} donors? Their transactions will remain but be unlinked.`)) return;
+    const toDelete = [...selectedDonorIds];
+    setDonors(p => p.filter(d => !toDelete.includes(d.id)));
+    setSelectedDonorIds([]);
+    try {
+      const sb = await getSupabase();
+      for (let i = 0; i < toDelete.length; i += 100) {
+        const chunk = toDelete.slice(i, i+100);
+        await sb.from('ksp_donors').delete().in('id', chunk);
+      }
+    } catch(e) { console.log('Bulk delete donors:', e); }
+  };
+
+  // Auto-merge duplicates (by name)
+  const handleDedupe = async () => {
+    const groups = {};
+    donors.forEach(d => {
+      const key = d.name.toLowerCase().trim();
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(d);
+    });
+    const dupGroups = Object.values(groups).filter(g => g.length > 1);
+    if (dupGroups.length === 0) {
+      alert('No duplicate donors found! ✓');
+      return;
+    }
+    const totalDups = dupGroups.reduce((s,g) => s + (g.length-1), 0);
+    if (!confirm(`Found ${dupGroups.length} sets of duplicates (${totalDups} extra records). Merge them now? The most complete record will be kept; transactions will be re-linked.`)) return;
+    const idsToDelete = [];
+    const reassignments = [];  // {fromId, toId}
+    dupGroups.forEach(group => {
+      // Keep the one with the most info (email, phone, address filled in)
+      const score = (d) => (d.email?1:0) + (d.phone?1:0) + (d.address?1:0);
+      group.sort((a,b) => score(b) - score(a));
+      const keeper = group[0];
+      group.slice(1).forEach(d => {
+        idsToDelete.push(d.id);
+        reassignments.push({ fromId: d.id, toId: keeper.id });
+      });
+    });
+    // Update transactions to point to keepers
+    setTransactions(prev => prev.map(t => {
+      const r = reassignments.find(x => x.fromId === t.donor_id);
+      return r ? { ...t, donor_id: r.toId } : t;
+    }));
+    // Remove dupe donors
+    setDonors(p => p.filter(d => !idsToDelete.includes(d.id)));
+    // Save to Supabase
+    try {
+      const sb = await getSupabase();
+      for (const r of reassignments) {
+        await sb.from('ksp_transactions').update({ donor_id: r.toId }).eq('donor_id', r.fromId);
+      }
+      for (let i = 0; i < idsToDelete.length; i += 100) {
+        const chunk = idsToDelete.slice(i, i+100);
+        await sb.from('ksp_donors').delete().in('id', chunk);
+      }
+      alert(`✓ Merged ${totalDups} duplicate donors!`);
+    } catch(e) { console.error('Dedupe:', e); alert('Dedupe error: ' + (e.message || 'check console')); }
+  };
 
   const handleCSVUpload = (e) => {
     const file = e.target.files[0]; if (!file) return;
@@ -1468,9 +1539,10 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
 
   return (
     <div>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:8 }}>
         <h2 style={{ fontSize:'1.6rem' }}>👥 {orgConfig.donorLabel}</h2>
-        <div style={{ display:'flex', gap:8 }}>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          <button className="btn btn-outline" onClick={handleDedupe} style={{ background:'#FFF3F3', color: RED, borderColor: RED }}>🧹 Find Duplicates</button>
           <button className="btn btn-outline" onClick={async () => {
             // Re-link transactions to donors by matching name
             const unlinkedTxs = transactions.filter(t => t.type === 'income' && !t.donor_id);
@@ -1582,26 +1654,48 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
             <p>No {orgConfig.donorLabel.toLowerCase()} yet. Add them to track giving history.</p>
           </div>
         ) : (
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.9rem' }}>
-            <thead><tr style={{ borderBottom:`1px solid ${BORDER}`, background: CREAM }}>
-              {['Name','Email','Phone','Total Given','# Gifts'].map(h => <th key={h} style={{ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase', textAlign:'left' }}>{h}</th>)}
-            </tr></thead>
-            <tbody>
-              {donors.map(d => {
-                const total = donorTotals[d.id] || 0;
-                const gifts = transactions.filter(t => t.donor_id === d.id).length;
-                return (
-                  <tr key={d.id} style={{ borderBottom:`1px solid #F4F6FA` }}>
-                    <td style={{ padding:'12px', color: NAVY, fontWeight:600 }}>{d.name}</td>
-                    <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{d.email || '—'}</td>
-                    <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{d.phone || '—'}</td>
-                    <td style={{ padding:'12px', fontWeight:700, color: FOREST }}>{fmt(total)}</td>
-                    <td style={{ padding:'12px', color: TXT_LIGHT }}>{gifts}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <>
+            {selectedDonorIds.length > 0 && (
+              <div style={{ background: GOLD_PALE, padding:'10px 14px', borderBottom:`1px solid ${GOLD}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <span style={{ fontSize:'0.85rem', fontWeight:700, color:'#8B6914' }}>✓ {selectedDonorIds.length} selected</span>
+                <div style={{ display:'flex', gap:6 }}>
+                  <button onClick={()=>setSelectedDonorIds([])} style={{ padding:'5px 10px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, background:'#fff', color: NAVY, border:`1px solid ${BORDER}`, cursor:'pointer' }}>Clear</button>
+                  <button onClick={handleBulkDeleteDonors} style={{ padding:'5px 12px', borderRadius:6, fontSize:'0.78rem', fontWeight:700, background: RED, color:'#fff', border:'none', cursor:'pointer' }}>🗑 Delete {selectedDonorIds.length} selected</button>
+                </div>
+              </div>
+            )}
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.9rem' }}>
+              <thead><tr style={{ borderBottom:`1px solid ${BORDER}`, background: CREAM }}>
+                <th style={{ padding:'10px 8px 10px 14px', width:30 }}>
+                  <input type="checkbox" checked={selectedDonorIds.length === donors.length && donors.length > 0} onChange={e => setSelectedDonorIds(e.target.checked ? donors.map(d => d.id) : [])} />
+                </th>
+                {['Name','Email','Phone','Total Given','# Gifts',''].map(h => <th key={h} style={{ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase', textAlign:'left' }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {donors.map(d => {
+                  const total = donorTotals[d.id] || 0;
+                  const gifts = transactions.filter(t => t.donor_id === d.id).length;
+                  const isChecked = selectedDonorIds.includes(d.id);
+                  return (
+                    <tr key={d.id} style={{ borderBottom:`1px solid #F4F6FA`, background: isChecked ? '#FDF7E8' : 'transparent' }}>
+                      <td style={{ padding:'10px 8px 10px 14px' }}>
+                        <input type="checkbox" checked={isChecked} onChange={e => {
+                          if (e.target.checked) setSelectedDonorIds(prev => [...prev, d.id]);
+                          else setSelectedDonorIds(prev => prev.filter(id => id !== d.id));
+                        }} />
+                      </td>
+                      <td style={{ padding:'12px', color: NAVY, fontWeight:600 }}>{d.name}</td>
+                      <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{d.email || '—'}</td>
+                      <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{d.phone || '—'}</td>
+                      <td style={{ padding:'12px', fontWeight:700, color: FOREST }}>{fmt(total)}</td>
+                      <td style={{ padding:'12px', color: TXT_LIGHT }}>{gifts}</td>
+                      <td style={{ padding:'12px' }}><button onClick={() => handleDeleteDonor(d.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color: TXT_LIGHT }}>🗑</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>
         )}
       </div>
     </div>
@@ -1932,7 +2026,7 @@ function StatementsTab({ user, donors, transactions, orgConfig, orgName }) {
             </tbody>
           </table>
           <p style={{ fontSize:'0.8rem', color: TXT_LIGHT, lineHeight:1.6, marginTop:'1.5rem' }}>
-            <strong>Important:</strong> No goods or services were provided in exchange for these contributions, except as noted. Please retain this statement for your tax records. {orgName} is a registered {orgType === 'church' ? '501(c)(3) religious organization' : '501(c)(3) nonprofit'}.
+            <strong>Important:</strong> No goods or services were provided in exchange for these contributions, except as noted. Please retain this statement for your tax records. {orgName} is a registered {orgConfig.id === 'church' ? '501(c)(3) religious organization' : '501(c)(3) nonprofit'}.
           </p>
           <button className="btn btn-navy" style={{ marginTop:'1.5rem', width:'100%' }} onClick={()=>window.print()}>🖨️ Print This Statement</button>
         </div>
