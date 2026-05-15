@@ -727,6 +727,9 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
   const [showImport, setShowImport] = useState(false);
   const [importRows, setImportRows] = useState([]);
   const [importFundId, setImportFundId] = useState(funds[0]?.id || '');
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [filterMonth, setFilterMonth] = useState('all');
+  const [filterYear, setFilterYear] = useState(new Date().getFullYear());
   const [type, setType] = useState('income');
   const [date, setDate] = useState(new Date().toISOString().slice(0,10));
   const [amount, setAmount] = useState('');
@@ -1187,33 +1190,106 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
             <div style={{ fontSize:'2.5rem', marginBottom:8 }}>📋</div>
             <p>No transactions yet. Click "Add Transaction" to get started.</p>
           </div>
-        ) : (
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.9rem' }}>
-            <thead><tr style={{ borderBottom:`1px solid ${BORDER}`, background: CREAM }}>
-              {['Date','Type','Description','Category','Amount',''].map(h => <th key={h} style={{ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase', textAlign:'left' }}>{h}</th>)}
-            </tr></thead>
-            <tbody>
-              {[...transactions].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(t => (
-                <tr key={t.id} style={{ borderBottom:`1px solid #F4F6FA` }}>
-                  <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{t.date}</td>
-                  <td style={{ padding:'12px' }}><span style={{ background: t.type==='income'?SAGE:RED_PALE, color: t.type==='income'?FOREST:RED, padding:'2px 8px', borderRadius:6, fontSize:'0.72rem', fontWeight:700 }}>{t.type==='income'?'IN':'OUT'}</span></td>
-                  <td style={{ padding:'12px', color: NAVY }}>{t.description || '—'}</td>
-                  <td style={{ padding:'12px' }}>
-                    <select value={t.category || 'Other'} onChange={async (e) => {
-                      const newCat = e.target.value;
-                      setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, category: newCat } : x));
-                      try { const sb = await getSupabase(); await sb.from('ksp_transactions').update({ category: newCat }).eq('id', t.id); } catch(err) { console.log('Update cat:', err); }
-                    }} style={{ background:'#fff', color: t.type==='income'?FOREST:RED, padding:'4px 8px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, border:`1px solid ${BORDER}`, cursor:'pointer', maxWidth:180 }}>
-                      {(t.type === 'income' ? orgConfig.incomeCategories : orgConfig.expenseCategories).map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </td>
-                  <td style={{ padding:'12px', fontWeight:700, color: t.type==='income'?FOREST:RED }}>{t.type==='income'?'+':'-'}{fmt(t.amount)}</td>
-                  <td style={{ padding:'12px' }}><button onClick={()=>handleDelete(t.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color: TXT_LIGHT }}>🗑</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        ) : (() => {
+          // Filter by year/month
+          const filtered = transactions.filter(t => {
+            const d = new Date(t.date);
+            if (d.getFullYear() !== filterYear) return false;
+            if (filterMonth !== 'all' && d.getMonth() !== parseInt(filterMonth)) return false;
+            return true;
+          });
+          const sorted = [...filtered].sort((a,b)=>new Date(b.date)-new Date(a.date));
+          const visibleIds = sorted.map(t => t.id);
+          const selectedHere = selectedIds.filter(id => visibleIds.includes(id));
+          const allSelected = visibleIds.length > 0 && selectedHere.length === visibleIds.length;
+          const someSelected = selectedHere.length > 0;
+
+          const handleBulkDelete = async () => {
+            if (!confirm(`Delete ${selectedHere.length} transactions? This cannot be undone.`)) return;
+            setTransactions(p => p.filter(t => !selectedHere.includes(t.id)));
+            setSelectedIds(prev => prev.filter(id => !selectedHere.includes(id)));
+            try {
+              const sb = await getSupabase();
+              // Delete in chunks of 100
+              for (let i = 0; i < selectedHere.length; i += 100) {
+                const chunk = selectedHere.slice(i, i+100);
+                await sb.from('ksp_transactions').delete().in('id', chunk);
+              }
+            } catch(e) { console.log('Bulk delete:', e); }
+          };
+
+          return (
+            <>
+              {/* Filter Bar */}
+              <div style={{ padding:'12px 16px', background: CREAM, borderBottom:`1px solid ${BORDER}`, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                <span style={{ fontSize:'0.78rem', fontWeight:700, color: TXT_LIGHT }}>FILTER:</span>
+                <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} style={{ padding:'4px 8px', fontSize:'0.82rem' }}>
+                  <option value="all">All months</option>
+                  {MONTHS.map((m,i) => <option key={i} value={i}>{m}</option>)}
+                </select>
+                <select value={filterYear} onChange={e=>setFilterYear(parseInt(e.target.value))} style={{ padding:'4px 8px', fontSize:'0.82rem' }}>
+                  {[2024,2025,2026].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+                <span style={{ fontSize:'0.82rem', color: TXT_LIGHT, marginLeft:'auto' }}>{filtered.length} transactions · {fmt(filtered.filter(t=>t.type==='income').reduce((s,t)=>s+parseFloat(t.amount||0),0))} income</span>
+              </div>
+
+              {/* Bulk Action Bar */}
+              {someSelected && (
+                <div style={{ background: GOLD_PALE, padding:'10px 14px', borderBottom:`1px solid ${GOLD}`, display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
+                  <span style={{ fontSize:'0.85rem', fontWeight:700, color:'#8B6914' }}>✓ {selectedHere.length} selected</span>
+                  <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+                    <button onClick={()=>setSelectedIds(prev => prev.filter(id => !visibleIds.includes(id)))} style={{ padding:'5px 10px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, background:'#fff', color: NAVY, border:`1px solid ${BORDER}`, cursor:'pointer' }}>Clear</button>
+                    <button onClick={handleBulkDelete} style={{ padding:'5px 12px', borderRadius:6, fontSize:'0.78rem', fontWeight:700, background: RED, color:'#fff', border:'none', cursor:'pointer' }}>🗑 Delete {selectedHere.length} selected</button>
+                  </div>
+                </div>
+              )}
+
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.9rem' }}>
+                <thead><tr style={{ borderBottom:`1px solid ${BORDER}`, background: CREAM }}>
+                  <th style={{ padding:'10px 8px 10px 14px', width:30 }}>
+                    <input type="checkbox" checked={allSelected} onChange={e=>{
+                      if (e.target.checked) setSelectedIds(prev => [...new Set([...prev, ...visibleIds])]);
+                      else setSelectedIds(prev => prev.filter(id => !visibleIds.includes(id)));
+                    }} />
+                  </th>
+                  {['Date','Type','Description','Donor','Category','Amount',''].map(h => <th key={h} style={{ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase', textAlign:'left' }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {sorted.length === 0 && <tr><td colSpan={8} style={{ padding:'2rem', textAlign:'center', color: TXT_LIGHT }}>No transactions match the filter</td></tr>}
+                  {sorted.map(t => {
+                    const isChecked = selectedIds.includes(t.id);
+                    const donor = donors.find(d => d.id === t.donor_id);
+                    return (
+                      <tr key={t.id} style={{ borderBottom:`1px solid #F4F6FA`, background: isChecked ? '#FDF7E8' : 'transparent' }}>
+                        <td style={{ padding:'10px 8px 10px 14px' }}>
+                          <input type="checkbox" checked={isChecked} onChange={e=>{
+                            if (e.target.checked) setSelectedIds(prev => [...prev, t.id]);
+                            else setSelectedIds(prev => prev.filter(id => id !== t.id));
+                          }} />
+                        </td>
+                        <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{t.date}</td>
+                        <td style={{ padding:'12px' }}><span style={{ background: t.type==='income'?SAGE:RED_PALE, color: t.type==='income'?FOREST:RED, padding:'2px 8px', borderRadius:6, fontSize:'0.72rem', fontWeight:700 }}>{t.type==='income'?'IN':'OUT'}</span></td>
+                        <td style={{ padding:'12px', color: NAVY }}>{t.description || '—'}</td>
+                        <td style={{ padding:'12px', color: donor ? NAVY : '#B53232', fontSize:'0.85rem', fontWeight: donor ? 600 : 400, fontStyle: donor ? 'normal' : 'italic' }}>{donor ? donor.name : '⚠ none'}</td>
+                        <td style={{ padding:'12px' }}>
+                          <select value={t.category || 'Other'} onChange={async (e) => {
+                            const newCat = e.target.value;
+                            setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, category: newCat } : x));
+                            try { const sb = await getSupabase(); await sb.from('ksp_transactions').update({ category: newCat }).eq('id', t.id); } catch(err) { console.log('Update cat:', err); }
+                          }} style={{ background:'#fff', color: t.type==='income'?FOREST:RED, padding:'4px 8px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, border:`1px solid ${BORDER}`, cursor:'pointer', maxWidth:180 }}>
+                            {(t.type === 'income' ? orgConfig.incomeCategories : orgConfig.expenseCategories).map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </td>
+                        <td style={{ padding:'12px', fontWeight:700, color: t.type==='income'?FOREST:RED }}>{t.type==='income'?'+':'-'}{fmt(t.amount)}</td>
+                        <td style={{ padding:'12px' }}><button onClick={()=>handleDelete(t.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color: TXT_LIGHT }}>🗑</button></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>
+          );
+        })()}
       </div>
     </div>
   );
