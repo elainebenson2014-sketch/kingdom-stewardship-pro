@@ -655,7 +655,16 @@ function OverviewTab({ transactions, donors, funds, orgConfig, setTab }) {
   const netYTD = totalIncomeYTD - totalExpensesYTD;
   const incomeMonth = monthTxs.filter(t => t.type==='income').reduce((s,t)=>s+parseFloat(t.amount||0), 0);
   const expensesMonth = monthTxs.filter(t => t.type==='expense').reduce((s,t)=>s+parseFloat(t.amount||0), 0);
-  const topDonors = [...donors].sort((a,b) => (parseFloat(b.total_given||0)) - (parseFloat(a.total_given||0))).slice(0,5);
+  // Calculate actual totals per donor from transactions (not stored total_given)
+  const donorTotalsMap = {};
+  transactions.filter(t => t.type === 'income' && t.donor_id).forEach(t => {
+    donorTotalsMap[t.donor_id] = (donorTotalsMap[t.donor_id] || 0) + parseFloat(t.amount||0);
+  });
+  const topDonors = [...donors]
+    .map(d => ({ ...d, actualTotal: donorTotalsMap[d.id] || 0 }))
+    .filter(d => d.actualTotal > 0)
+    .sort((a,b) => b.actualTotal - a.actualTotal)
+    .slice(0,5);
 
   return (
     <div>
@@ -698,7 +707,7 @@ function OverviewTab({ transactions, donors, funds, orgConfig, setTab }) {
           {topDonors.map((d,i) => (
             <div key={d.id} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom: i<topDonors.length-1?`1px solid ${BORDER}`:'none' }}>
               <span style={{ color: NAVY, fontWeight:600 }}>{d.name}</span>
-              <span style={{ color: FOREST, fontWeight:700 }}>{fmt(d.total_given||0)}</span>
+              <span style={{ color: FOREST, fontWeight:700 }}>{fmt(d.actualTotal)}</span>
             </div>
           ))}
         </div>
