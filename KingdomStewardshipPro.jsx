@@ -1075,8 +1075,9 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
           const chunk = toImport.slice(i, i+100);
           const { data, error } = await sb.from('ksp_transactions').upsert(chunk, { onConflict: 'id' }).select();
           if (error) {
-            console.error('Transaction insert error:', error);
-            errorMessage = 'Transaction save error: ' + error.message + ' (code: ' + (error.code || 'N/A') + ')';
+            console.error('Transaction insert error:', JSON.stringify(error, null, 2));
+            console.error('Sample failing row:', JSON.stringify(chunk[0], null, 2));
+            errorMessage = 'Transaction save error: ' + (error.message || JSON.stringify(error)) + ' (code: ' + (error.code || 'N/A') + ')' + (error.details ? ' Details: ' + error.details : '') + (error.hint ? ' Hint: ' + error.hint : '');
           } else {
             successCount += chunk.length;
           }
