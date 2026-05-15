@@ -851,15 +851,50 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
           if (refundIdx >= 0 && c[refundIdx] && /yes|true|refund/i.test(c[refundIdx])) return null;
 
           let date = (txDateIdx >= 0 ? c[txDateIdx] : (depDateIdx >= 0 ? c[depDateIdx] : '')) || '';
-          if (date.includes('/')) {
-            const parts = date.split('/');
-            if (parts.length === 3) {
-              const mo = parts[0].padStart(2,'0');
-              const dy = parts[1].padStart(2,'0');
-              let yr = parts[2]; if (yr.length === 2) yr = '20' + yr;
-              date = `${yr}-${mo}-${dy}`;
+          date = date.trim();
+
+          // Try multiple date formats
+          let parsedDate = '';
+          if (date) {
+            // Format: MM/DD/YYYY or MM/DD/YY
+            if (date.includes('/')) {
+              const parts = date.split('/');
+              if (parts.length === 3) {
+                const mo = parts[0].padStart(2,'0');
+                const dy = parts[1].padStart(2,'0');
+                let yr = parts[2].trim(); if (yr.length === 2) yr = '20' + yr;
+                if (/^\d{4}$/.test(yr) && /^\d{1,2}$/.test(mo.replace(/^0/, '')) && /^\d{1,2}$/.test(dy.replace(/^0/, ''))) {
+                  parsedDate = `${yr}-${mo}-${dy}`;
+                }
+              }
+            }
+            // Format: YYYY-MM-DD (already correct)
+            else if (/^\d{4}-\d{2}-\d{2}/.test(date)) {
+              parsedDate = date.slice(0, 10);
+            }
+            // Format: MM-DD-YYYY
+            else if (date.includes('-') && date.split('-')[0].length <= 2) {
+              const parts = date.split('-');
+              if (parts.length === 3) {
+                const mo = parts[0].padStart(2,'0');
+                const dy = parts[1].padStart(2,'0');
+                let yr = parts[2].trim(); if (yr.length === 2) yr = '20' + yr;
+                if (/^\d{4}$/.test(yr)) parsedDate = `${yr}-${mo}-${dy}`;
+              }
+            }
+            // Try generic Date parsing
+            else {
+              const d = new Date(date);
+              if (!isNaN(d.getTime())) {
+                parsedDate = d.toISOString().slice(0, 10);
+              }
             }
           }
+          // Fallback: today's date if all parsing failed
+          if (!parsedDate || !/^\d{4}-\d{2}-\d{2}$/.test(parsedDate)) {
+            parsedDate = new Date().toISOString().slice(0, 10);
+          }
+          date = parsedDate;
 
           const amt = parseFloat((c[amtIdx]||'').replace(/[$,]/g,'')) || 0;
           if (amt === 0) return null;
@@ -944,15 +979,28 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
         parsed = lines.slice(1).map((l, idx) => {
           const c = l.split(DELIM).map(x => x.replace(/"/g,'').trim());
           let date = (dateIdx >= 0 ? c[dateIdx] : c[0]) || '';
-          if (date.includes('/')) {
-            const parts = date.split('/');
-            if (parts.length === 3) {
-              const mo = parts[0].padStart(2,'0');
-              const dy = parts[1].padStart(2,'0');
-              let yr = parts[2]; if (yr.length === 2) yr = '20' + yr;
-              date = `${yr}-${mo}-${dy}`;
+          date = date.trim();
+          let parsedDate = '';
+          if (date) {
+            if (date.includes('/')) {
+              const parts = date.split('/');
+              if (parts.length === 3) {
+                const mo = parts[0].padStart(2,'0');
+                const dy = parts[1].padStart(2,'0');
+                let yr = parts[2].trim(); if (yr.length === 2) yr = '20' + yr;
+                if (/^\d{4}$/.test(yr)) parsedDate = `${yr}-${mo}-${dy}`;
+              }
+            } else if (/^\d{4}-\d{2}-\d{2}/.test(date)) {
+              parsedDate = date.slice(0, 10);
+            } else {
+              const d = new Date(date);
+              if (!isNaN(d.getTime())) parsedDate = d.toISOString().slice(0, 10);
             }
           }
+          if (!parsedDate || !/^\d{4}-\d{2}-\d{2}$/.test(parsedDate)) {
+            parsedDate = new Date().toISOString().slice(0, 10);
+          }
+          date = parsedDate;
           let desc = (descIdx >= 0 ? c[descIdx] : '') || 'Imported';
           let amt = 0;
           let txType = 'expense';
