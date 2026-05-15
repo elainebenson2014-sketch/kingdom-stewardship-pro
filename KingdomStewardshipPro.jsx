@@ -745,9 +745,9 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
       const header = lines[0].split(',').map(x => x.replace(/"/g,'').trim().toLowerCase());
 
       // ===== TITHELY FORMAT DETECTION =====
-      const isTithely = header.includes('amount') && header.includes('giving type') &&
+      const isTithely = header.includes('giving type') &&
                         (header.includes('transaction date') || header.includes('deposit date')) &&
-                        header.includes('name');
+                        (header.includes('first name') || header.includes('name') || header.includes('member id') || header.includes('transaction id'));
 
       const findCol = (names) => {
         for (const n of names) {
@@ -766,9 +766,14 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
         // Tithely-specific parsing
         const amtIdx = findCol(['amount']);
         const netAmtIdx = findCol(['net amount']);
+        const firstNameIdx = findCol(['first name']);
+        const lastNameIdx = findCol(['last name']);
         const nameIdx = findCol(['name']);
         const emailIdx = findCol(['contact email','email']);
         const addrIdx = findCol(['address']);
+        const cityIdx = findCol(['city']);
+        const stateIdx = findCol(['state / province','state','province']);
+        const postalIdx = findCol(['postal','zip']);
         const phoneIdx = findCol(['phone']);
         const givingIdx = findCol(['giving type']);
         const memoIdx = findCol(['memo / note','memo','note']);
@@ -806,10 +811,28 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
           const amt = parseFloat((c[amtIdx]||'').replace(/[$,]/g,'')) || 0;
           if (amt === 0) return null;
 
-          const donorName = nameIdx >= 0 ? c[nameIdx] : '';
+          // Build donor name from First + Last, or fall back to Name column
+          let donorName = '';
+          if (firstNameIdx >= 0 || lastNameIdx >= 0) {
+            const first = firstNameIdx >= 0 ? (c[firstNameIdx] || '').trim() : '';
+            const last = lastNameIdx >= 0 ? (c[lastNameIdx] || '').trim() : '';
+            donorName = `${first} ${last}`.trim();
+          }
+          if (!donorName && nameIdx >= 0) donorName = c[nameIdx] || '';
+          if (!donorName) donorName = 'Anonymous';
+
           const givingType = givingIdx >= 0 ? c[givingIdx] : '';
           const memo = memoIdx >= 0 ? c[memoIdx] : '';
           const method = methodIdx >= 0 ? c[methodIdx] : '';
+
+          // Build full address from parts
+          let fullAddr = '';
+          if (addrIdx >= 0) fullAddr = c[addrIdx] || '';
+          const addrParts = [];
+          if (cityIdx >= 0 && c[cityIdx]) addrParts.push(c[cityIdx]);
+          if (stateIdx >= 0 && c[stateIdx]) addrParts.push(c[stateIdx]);
+          if (postalIdx >= 0 && c[postalIdx]) addrParts.push(c[postalIdx]);
+          if (addrParts.length > 0) fullAddr = fullAddr + (fullAddr ? ', ' : '') + addrParts.join(', ');
 
           // Map Tithely "Giving Type" to our categories
           const validCats = orgConfig.incomeCategories;
@@ -831,9 +854,9 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
             if (!validCats.includes(chosenCat)) chosenCat = validCats[0];
           }
 
-          // Match donor by name
+          // Match donor by name (skip Anonymous)
           let matchedDonorId = '';
-          if (donorName) {
+          if (donorName && donorName !== 'Anonymous') {
             const match = donors.find(d => d.name.toLowerCase() === donorName.toLowerCase());
             if (match) matchedDonorId = match.id;
           }
@@ -848,7 +871,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
             _tithely: true,
             _email: emailIdx >= 0 ? c[emailIdx] : '',
             _phone: phoneIdx >= 0 ? c[phoneIdx] : '',
-            _address: addrIdx >= 0 ? c[addrIdx] : '',
+            _address: fullAddr,
             include: true,
           };
         }).filter(r => r !== null);
@@ -926,7 +949,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
   const handleImportAll = async () => {
     // First, auto-create any missing donors from Tithely rows
     const newDonors = [];
-    const tithelyRows = importRows.filter(r => r.include && r._tithely && r.donorName && !r.donor_id);
+    const tithelyRows = importRows.filter(r => r.include && r._tithely && r.donorName && r.donorName !== 'Anonymous' && !r.donor_id);
     const seenNames = new Set();
     tithelyRows.forEach(r => {
       const lname = r.donorName.toLowerCase();
@@ -1546,6 +1569,7 @@ function ReportsTab({ transactions, orgConfig }) {
 function StatementsTab({ user, donors, transactions, orgConfig, orgName }) {
   const [year, setYear] = useState(new Date().getFullYear() - 1);
   const [selectedDonor, setSelectedDonor] = useState(null);
+  const [showAudit, setShowAudit] = useState(false);
 
   const generateStatement = (donor) => {
     const yearTxs = transactions.filter(t =>
@@ -1556,6 +1580,27 @@ function StatementsTab({ user, donors, transactions, orgConfig, orgName }) {
     return yearTxs;
   };
 
+  // Audit calculations
+  const yearIncomeTxs = transactions.filter(t => t.type === 'income' && new Date(t.date).getFullYear() === year);
+  const totalYearIncome = yearIncomeTxs.reduce((s,t)=>s+parseFloat(t.amount||0), 0);
+  const incomeWithDonor = yearIncomeTxs.filter(t => t.donor_id);
+  const incomeNoDonor = yearIncomeTxs.filter(t => !t.donor_id);
+  const totalWithDonor = incomeWithDonor.reduce((s,t)=>s+parseFloat(t.amount||0), 0);
+  const totalNoDonor = incomeNoDonor.reduce((s,t)=>s+parseFloat(t.amount||0), 0);
+  const donorsWithGifts = donors.filter(d => generateStatement(d).length > 0);
+  const monthlyBreakdown = MONTHS.map((m, i) => {
+    const monthTxs = yearIncomeTxs.filter(t => new Date(t.date).getMonth() === i);
+    const total = monthTxs.reduce((s,t)=>s+parseFloat(t.amount||0), 0);
+    return { month: m, count: monthTxs.length, total };
+  }).filter(m => m.count > 0);
+  const categoryBreakdown = {};
+  yearIncomeTxs.forEach(t => {
+    const c = t.category || 'Uncategorized';
+    if (!categoryBreakdown[c]) categoryBreakdown[c] = { count: 0, total: 0 };
+    categoryBreakdown[c].count++;
+    categoryBreakdown[c].total += parseFloat(t.amount||0);
+  });
+
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem' }}>
@@ -1565,11 +1610,105 @@ function StatementsTab({ user, donors, transactions, orgConfig, orgName }) {
         </select>
       </div>
 
-      <div className="card card-p" style={{ marginBottom:'1.5rem', background: GOLD_PALE, borderLeft:`4px solid ${GOLD}` }}>
+      <div className="card card-p" style={{ marginBottom:'1rem', background: GOLD_PALE, borderLeft:`4px solid ${GOLD}` }}>
         <p style={{ color: NAVY, fontSize:'0.92rem' }}>
           <strong>IRS-Compliant Statements:</strong> Generate official giving statements for any {orgConfig.donorLabel.toLowerCase().slice(0,-1)} who gave during {year}. These can be printed, emailed, or saved as PDF for {orgConfig.donorLabel.toLowerCase()} to claim tax deductions.
         </p>
       </div>
+
+      <div style={{ marginBottom:'1.5rem' }}>
+        <button className="btn btn-outline" onClick={()=>setShowAudit(!showAudit)} style={{ width:'100%' }}>
+          {showAudit ? '▼' : '▶'} 🔍 Statement Audit — Verify totals before generating
+        </button>
+      </div>
+
+      {showAudit && (
+        <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${FOREST}` }}>
+          <h3 style={{ marginBottom:'1rem' }}>🔍 Statement Audit for {year}</h3>
+
+          {/* Summary Stats */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:'0.75rem', marginBottom:'1.5rem' }}>
+            <div style={{ background: SAGE, padding:12, borderRadius:8 }}>
+              <div style={{ fontSize:'0.72rem', fontWeight:700, color: FOREST, textTransform:'uppercase' }}>Total Income {year}</div>
+              <div style={{ fontSize:'1.5rem', fontWeight:700, color: FOREST, fontFamily:'Georgia,serif' }}>{fmt(totalYearIncome)}</div>
+              <div style={{ fontSize:'0.75rem', color: TXT_LIGHT }}>{yearIncomeTxs.length} transactions</div>
+            </div>
+            <div style={{ background: SAGE, padding:12, borderRadius:8 }}>
+              <div style={{ fontSize:'0.72rem', fontWeight:700, color: FOREST, textTransform:'uppercase' }}>Tagged to Donor</div>
+              <div style={{ fontSize:'1.5rem', fontWeight:700, color: FOREST, fontFamily:'Georgia,serif' }}>{fmt(totalWithDonor)}</div>
+              <div style={{ fontSize:'0.75rem', color: TXT_LIGHT }}>{incomeWithDonor.length} transactions · ✓ in statements</div>
+            </div>
+            <div style={{ background: totalNoDonor > 0 ? '#FFF8E1' : SAGE, padding:12, borderRadius:8, border: totalNoDonor > 0 ? `1px solid ${GOLD}` : 'none' }}>
+              <div style={{ fontSize:'0.72rem', fontWeight:700, color: totalNoDonor > 0 ? '#8B6914' : FOREST, textTransform:'uppercase' }}>NOT Tagged</div>
+              <div style={{ fontSize:'1.5rem', fontWeight:700, color: totalNoDonor > 0 ? '#8B6914' : FOREST, fontFamily:'Georgia,serif' }}>{fmt(totalNoDonor)}</div>
+              <div style={{ fontSize:'0.75rem', color: TXT_LIGHT }}>{incomeNoDonor.length} txs · ⚠️ won't appear on statements</div>
+            </div>
+            <div style={{ background: SAGE, padding:12, borderRadius:8 }}>
+              <div style={{ fontSize:'0.72rem', fontWeight:700, color: FOREST, textTransform:'uppercase' }}>Donors w/ Gifts</div>
+              <div style={{ fontSize:'1.5rem', fontWeight:700, color: FOREST, fontFamily:'Georgia,serif' }}>{donorsWithGifts.length}</div>
+              <div style={{ fontSize:'0.75rem', color: TXT_LIGHT }}>statements to send</div>
+            </div>
+          </div>
+
+          {totalNoDonor > 0 && (
+            <div style={{ background:'#FFF8E1', padding:12, borderRadius:8, marginBottom:'1rem', border:`1px solid ${GOLD}` }}>
+              <strong style={{ color:'#8B6914' }}>⚠️ {incomeNoDonor.length} transactions ({fmt(totalNoDonor)}) aren't linked to a donor.</strong>
+              <p style={{ fontSize:'0.85rem', color:'#8B6914', marginTop:4 }}>These won't appear on any donor's statement. Go to <strong>Transactions</strong>, find them, and assign donors. Common reasons: anonymous gifts, cash offerings, or missed donor name on import.</p>
+            </div>
+          )}
+
+          {/* Monthly Breakdown */}
+          <div style={{ marginBottom:'1.5rem' }}>
+            <h4 style={{ fontSize:'1rem', marginBottom:'0.5rem' }}>📅 Monthly Income — Compare to Tithely</h4>
+            <table style={{ width:'100%', fontSize:'0.88rem' }}>
+              <thead><tr style={{ borderBottom:`1px solid ${BORDER}` }}>
+                <th style={{ padding:'8px', textAlign:'left', color: TXT_LIGHT, fontSize:'0.75rem', textTransform:'uppercase' }}>Month</th>
+                <th style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT, fontSize:'0.75rem', textTransform:'uppercase' }}>Transactions</th>
+                <th style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT, fontSize:'0.75rem', textTransform:'uppercase' }}>Total</th>
+              </tr></thead>
+              <tbody>
+                {monthlyBreakdown.map(m => (
+                  <tr key={m.month} style={{ borderBottom:`1px solid #F4F6FA` }}>
+                    <td style={{ padding:'8px', color: NAVY }}>{m.month}</td>
+                    <td style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT }}>{m.count}</td>
+                    <td style={{ padding:'8px', textAlign:'right', fontWeight:700, color: FOREST }}>{fmt(m.total)}</td>
+                  </tr>
+                ))}
+                <tr style={{ borderTop:`2px solid ${NAVY}`, background: GOLD_PALE }}>
+                  <td style={{ padding:'10px 8px', fontWeight:700 }}>TOTAL YEAR</td>
+                  <td style={{ padding:'10px 8px', textAlign:'right', fontWeight:700 }}>{yearIncomeTxs.length}</td>
+                  <td style={{ padding:'10px 8px', textAlign:'right', fontWeight:700, color: FOREST, fontSize:'1.05rem' }}>{fmt(totalYearIncome)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Category Breakdown */}
+          <div style={{ marginBottom:'1rem' }}>
+            <h4 style={{ fontSize:'1rem', marginBottom:'0.5rem' }}>📂 By Category — Compare to Tithely</h4>
+            <table style={{ width:'100%', fontSize:'0.88rem' }}>
+              <thead><tr style={{ borderBottom:`1px solid ${BORDER}` }}>
+                <th style={{ padding:'8px', textAlign:'left', color: TXT_LIGHT, fontSize:'0.75rem', textTransform:'uppercase' }}>Category</th>
+                <th style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT, fontSize:'0.75rem', textTransform:'uppercase' }}>Count</th>
+                <th style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT, fontSize:'0.75rem', textTransform:'uppercase' }}>Total</th>
+              </tr></thead>
+              <tbody>
+                {Object.entries(categoryBreakdown).sort((a,b) => b[1].total - a[1].total).map(([cat, data]) => (
+                  <tr key={cat} style={{ borderBottom:`1px solid #F4F6FA` }}>
+                    <td style={{ padding:'8px' }}><span style={{ background: SAGE, color: FOREST, padding:'2px 8px', borderRadius:6, fontSize:'0.78rem', fontWeight:600 }}>{cat}</span></td>
+                    <td style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT }}>{data.count}</td>
+                    <td style={{ padding:'8px', textAlign:'right', fontWeight:700, color: FOREST }}>{fmt(data.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ background:'#F0F8FF', padding:12, borderRadius:8, fontSize:'0.85rem', color: NAVY }}>
+            <strong>💡 How to verify against Tithely:</strong> Log into Tithely → Reports → run a "Total Giving by Month" report for {year}. Compare the monthly totals above to Tithely's. Any difference usually means: (1) a transaction wasn't imported, (2) a date is wrong, or (3) a category was renamed.
+          </div>
+        </div>
+      )}
 
       {selectedDonor ? (
         <div className="card card-p" style={{ marginBottom:'1rem' }}>
