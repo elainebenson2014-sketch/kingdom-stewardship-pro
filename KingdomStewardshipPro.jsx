@@ -570,6 +570,7 @@ function Dashboard({ user, onLogout }) {
   const [orgName, setOrgName] = useState('My Organization');
   const [transactions, setTransactions] = useState([]);
   const [donors, setDonors] = useState([]);
+  const [vendors, setVendors] = useState([]);
   const [funds, setFunds] = useState([
     { id:'fund_general', name:'General Fund', type:'General', balance:0 }
   ]);
@@ -599,6 +600,11 @@ function Dashboard({ user, onLogout }) {
         // Load donors
         const { data: ds } = await sb.from('ksp_donors').select('*').eq('user_id', user.id);
         if (ds) setDonors(ds);
+        // Load vendors (table may not exist yet — handle gracefully)
+        try {
+          const { data: vs } = await sb.from('ksp_vendors').select('*').eq('user_id', user.id);
+          if (vs) setVendors(vs);
+        } catch(ve) { console.log('Vendors table missing — run SQL setup'); }
         // Load funds
         const { data: fs } = await sb.from('ksp_funds').select('*').eq('user_id', user.id);
         if (fs && fs.length > 0) setFunds(fs);
@@ -628,6 +634,7 @@ function Dashboard({ user, onLogout }) {
             { id:'overview', icon:'📊', label:'Overview' },
             { id:'transactions', icon:'💰', label:'Transactions' },
             { id:'donors', icon:'👥', label: orgConfig.donorLabel },
+            { id:'vendors', icon:'🏪', label:'Vendors' },
             ...(orgConfig.hasFunds ? [{ id:'funds', icon:'🏦', label:'Funds' }] : []),
             { id:'reports', icon:'📄', label:'Reports' },
             { id:'statements', icon:'📃', label:'Statements' },
@@ -652,10 +659,11 @@ function Dashboard({ user, onLogout }) {
       {/* Main */}
       <main style={{ flex:1, padding:'2rem', overflow:'auto' }}>
         {tab === 'overview' && <OverviewTab transactions={transactions} donors={donors} funds={funds} orgConfig={orgConfig} setTab={setTab} />}
-        {tab === 'transactions' && <TransactionsTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} setDonors={setDonors} funds={funds} orgConfig={orgConfig} />}
+        {tab === 'transactions' && <TransactionsTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} setDonors={setDonors} vendors={vendors} setVendors={setVendors} funds={funds} orgConfig={orgConfig} />}
         {tab === 'donors' && <DonorsTab user={user} donors={donors} setDonors={setDonors} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
+        {tab === 'vendors' && <VendorsTab user={user} vendors={vendors} setVendors={setVendors} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
         {tab === 'funds' && orgConfig.hasFunds && <FundsTab user={user} funds={funds} setFunds={setFunds} transactions={transactions} />}
-        {tab === 'reports' && <ReportsTab transactions={transactions} donors={donors} orgConfig={orgConfig} />}
+        {tab === 'reports' && <ReportsTab transactions={transactions} donors={donors} vendors={vendors} orgConfig={orgConfig} />}
         {tab === 'statements' && <StatementsTab user={user} donors={donors} transactions={transactions} orgConfig={orgConfig} orgName={orgName} />}
         {tab === 'settings' && <SettingsTab user={user} orgName={orgName} setOrgName={setOrgName} orgType={orgType} setOrgType={setOrgType} customIncomeCats={customIncomeCats} setCustomIncomeCats={setCustomIncomeCats} customExpenseCats={customExpenseCats} setCustomExpenseCats={setCustomExpenseCats} />}
       </main>
@@ -753,7 +761,7 @@ function StatCard({ label, value, color, sub }) {
 }
 
 // ============ TRANSACTIONS TAB ============
-function TransactionsTab({ user, transactions, setTransactions, donors, setDonors, funds, orgConfig }) {
+function TransactionsTab({ user, transactions, setTransactions, donors, setDonors, vendors, setVendors, funds, orgConfig }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
@@ -2133,6 +2141,308 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
                 </table>
               );
             })()}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============ VENDORS TAB ============
+function VendorsTab({ user, vendors, setVendors, transactions, setTransactions, orgConfig }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [show1099Only, setShow1099Only] = useState(false);
+  const [year1099, setYear1099] = useState(new Date().getFullYear() - 1);
+
+  // Form fields
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [taxId, setTaxId] = useState('');
+  const [defaultCategory, setDefaultCategory] = useState('');
+  const [is1099, setIs1099] = useState(false);
+  const [notes, setNotes] = useState('');
+
+  // Vendor totals from transactions
+  const vendorTotals = {};
+  const vendor1099Totals = {};
+  transactions.forEach(t => {
+    if (t.vendor_id && t.type === 'expense') {
+      vendorTotals[t.vendor_id] = (vendorTotals[t.vendor_id] || 0) + parseFloat(t.amount||0);
+      const txYear = new Date(t.date).getFullYear();
+      if (txYear === year1099) {
+        vendor1099Totals[t.vendor_id] = (vendor1099Totals[t.vendor_id] || 0) + parseFloat(t.amount||0);
+      }
+    }
+  });
+
+  const resetForm = () => {
+    setName(''); setEmail(''); setPhone(''); setAddress(''); setTaxId('');
+    setDefaultCategory(''); setIs1099(false); setNotes(''); setEditing(null);
+  };
+
+  const handleSave = async () => {
+    if (!name) return;
+    if (editing) {
+      const updated = { name, email, phone, address, tax_id: taxId, default_category: defaultCategory, is_1099: is1099, notes };
+      setVendors(p => p.map(v => v.id === editing.id ? { ...v, ...updated } : v));
+      try { const sb = await getSupabase(); await sb.from('ksp_vendors').update(updated).eq('id', editing.id); } catch(e) { console.log('Update vendor:', e); }
+    } else {
+      const newVendor = { id: 'vendor_' + Date.now(), user_id: user.id, name, email, phone, address, tax_id: taxId, default_category: defaultCategory, is_1099: is1099, notes };
+      setVendors(p => [...p, newVendor]);
+      try { const sb = await getSupabase(); const { error } = await sb.from('ksp_vendors').insert(newVendor); if (error) alert('Save error: ' + error.message); } catch(e) {}
+    }
+    setShowAdd(false); resetForm();
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this vendor? Their transactions will remain but be unlinked.')) return;
+    setVendors(p => p.filter(v => v.id !== id));
+    try { const sb = await getSupabase(); await sb.from('ksp_vendors').delete().eq('id', id); } catch(e) {}
+  };
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Delete ${selectedIds.length} vendors? Their transactions will remain but be unlinked.`)) return;
+    const toDelete = [...selectedIds];
+    setVendors(p => p.filter(v => !toDelete.includes(v.id)));
+    setSelectedIds([]);
+    try {
+      const sb = await getSupabase();
+      for (let i = 0; i < toDelete.length; i += 100) {
+        await sb.from('ksp_vendors').delete().in('id', toDelete.slice(i, i+100));
+      }
+    } catch(e) {}
+  };
+
+  const exportCSV = () => {
+    if (vendors.length === 0) { alert('No vendors to export.'); return; }
+    const rows = [['Name','Email','Phone','Address','Tax ID','1099 Required','Default Category','Total Paid','# Transactions','Notes']];
+    [...vendors].sort((a,b)=>a.name.localeCompare(b.name)).forEach(v => {
+      const total = vendorTotals[v.id] || 0;
+      const count = transactions.filter(t => t.vendor_id === v.id).length;
+      const esc = (s) => `"${String(s||'').replace(/"/g,'""')}"`;
+      rows.push([esc(v.name), esc(v.email), esc(v.phone), esc(v.address), esc(v.tax_id), v.is_1099?'Yes':'No', esc(v.default_category), total.toFixed(2), count, esc(v.notes)].join(','));
+    });
+    const blob = new Blob([rows.join('\n')], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `vendors_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const export1099Report = () => {
+    const needs1099 = vendors.filter(v => v.is_1099 && (vendor1099Totals[v.id] || 0) >= 600);
+    if (needs1099.length === 0) { alert(`No vendors meet the $600 threshold for ${year1099} 1099 reporting.`); return; }
+    const rows = [
+      [`1099-NEC REPORT — TAX YEAR ${year1099}`],
+      ['Vendors paid $600+ requiring 1099-NEC forms'],
+      [],
+      ['Vendor Name','Tax ID (EIN/SSN)','Address','Email','Phone','Total Paid','# Payments']
+    ];
+    needs1099.sort((a,b) => (vendor1099Totals[b.id]||0) - (vendor1099Totals[a.id]||0)).forEach(v => {
+      const total = vendor1099Totals[v.id] || 0;
+      const count = transactions.filter(t => t.vendor_id === v.id && new Date(t.date).getFullYear() === year1099).length;
+      const esc = (s) => `"${String(s||'').replace(/"/g,'""')}"`;
+      rows.push([esc(v.name), esc(v.tax_id||'MISSING'), esc(v.address), esc(v.email), esc(v.phone), total.toFixed(2), count].join(','));
+    });
+    rows.push([]);
+    rows.push(['TOTAL VENDORS REQUIRING 1099', needs1099.length]);
+    rows.push(['TOTAL AMOUNT REPORTED', needs1099.reduce((s,v) => s + (vendor1099Totals[v.id]||0), 0).toFixed(2)]);
+    const blob = new Blob([rows.map(r=>Array.isArray(r)?r.join(','):r).join('\n')], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `1099_report_${year1099}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // 1099 stats
+  const vendorsNeed1099 = vendors.filter(v => v.is_1099 && (vendor1099Totals[v.id] || 0) >= 600);
+  const vendorsMissingTaxId = vendorsNeed1099.filter(v => !v.tax_id);
+
+  // Filter & sort
+  let filtered = vendors;
+  if (show1099Only) filtered = filtered.filter(v => v.is_1099);
+  if (search) {
+    const s = search.toLowerCase();
+    filtered = filtered.filter(v =>
+      (v.name||'').toLowerCase().includes(s) ||
+      (v.email||'').toLowerCase().includes(s) ||
+      (v.phone||'').toLowerCase().includes(s) ||
+      (v.tax_id||'').toLowerCase().includes(s)
+    );
+  }
+  const sortMul = sortDir === 'asc' ? 1 : -1;
+  const sorted = [...filtered].sort((a,b) => {
+    if (sortField === 'name') return (a.name||'').localeCompare(b.name||'') * sortMul;
+    if (sortField === 'total') return ((vendorTotals[a.id]||0) - (vendorTotals[b.id]||0)) * sortMul;
+    if (sortField === 'count') {
+      const ac = transactions.filter(t => t.vendor_id === a.id).length;
+      const bc = transactions.filter(t => t.vendor_id === b.id).length;
+      return (ac - bc) * sortMul;
+    }
+    return 0;
+  });
+  const handleSort = (f) => { if (sortField === f) setSortDir(sortDir === 'asc' ? 'desc' : 'asc'); else { setSortField(f); setSortDir('asc'); } };
+  const sortIcon = (f) => sortField !== f ? '⇅' : (sortDir === 'asc' ? '↑' : '↓');
+  const hStyle = (f) => ({ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: sortField===f?NAVY:TXT_LIGHT, textTransform:'uppercase', textAlign:'left', cursor:'pointer', userSelect:'none' });
+
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:8 }}>
+        <h2 style={{ fontSize:'1.6rem' }}>🏪 Vendors</h2>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          <button className="btn btn-outline" onClick={exportCSV}>📤 Export CSV</button>
+          <button className="btn btn-navy" onClick={()=>{ resetForm(); setShowAdd(true); }}>+ Add Vendor</button>
+        </div>
+      </div>
+
+      {/* 1099 Status Card */}
+      {vendors.some(v => v.is_1099) && (
+        <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${vendorsMissingTaxId.length > 0 ? RED : FOREST}`, background: vendorsMissingTaxId.length > 0 ? '#FFF3F3' : SAGE }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
+            <div>
+              <h3 style={{ fontSize:'1rem', color: vendorsMissingTaxId.length > 0 ? RED : FOREST }}>📋 1099-NEC Report — Tax Year {year1099}</h3>
+              <p style={{ fontSize:'0.85rem', color: TXT_LIGHT, marginTop:4 }}>
+                <strong>{vendorsNeed1099.length}</strong> vendors paid $600+ requiring 1099s
+                {vendorsMissingTaxId.length > 0 && <span style={{ color: RED, fontWeight:700 }}> · ⚠️ {vendorsMissingTaxId.length} missing Tax ID</span>}
+              </p>
+            </div>
+            <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+              <select value={year1099} onChange={e=>setYear1099(parseInt(e.target.value))} style={{ padding:'6px 10px', fontSize:'0.85rem' }}>
+                {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <button className="btn btn-outline" onClick={export1099Report}>📤 Generate 1099 Report</button>
+            </div>
+          </div>
+          {vendorsMissingTaxId.length > 0 && (
+            <p style={{ fontSize:'0.78rem', color: RED, marginTop:8, fontStyle:'italic' }}>
+              💡 Missing Tax IDs for: {vendorsMissingTaxId.map(v=>v.name).slice(0,3).join(', ')}{vendorsMissingTaxId.length>3?` +${vendorsMissingTaxId.length-3} more`:''}. Edit each vendor to add their EIN or SSN.
+            </p>
+          )}
+        </div>
+      )}
+
+      {showAdd && (
+        <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${GOLD}` }}>
+          <h3 style={{ marginBottom:'1rem' }}>{editing ? '✏️ Edit Vendor' : '+ New Vendor'}</h3>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem', marginBottom:'1rem' }}>
+            <input style={{ width:'100%' }} value={name} onChange={e=>setName(e.target.value)} placeholder="Vendor name (e.g., Wix, John's Cleaning)" />
+            <input style={{ width:'100%' }} type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email" />
+            <input style={{ width:'100%' }} value={phone} onChange={e=>setPhone(e.target.value)} placeholder="Phone" />
+            <input style={{ width:'100%' }} value={address} onChange={e=>setAddress(e.target.value)} placeholder="Address (for 1099 mailing)" />
+            <input style={{ width:'100%' }} value={taxId} onChange={e=>setTaxId(e.target.value)} placeholder="Tax ID / EIN / SSN (for 1099)" />
+            <select style={{ width:'100%' }} value={defaultCategory} onChange={e=>setDefaultCategory(e.target.value)}>
+              <option value="">— Default Category (optional) —</option>
+              {orgConfig.expenseCategories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom:'1rem', padding:10, background: GOLD_PALE, borderRadius:6 }}>
+            <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer' }}>
+              <input type="checkbox" checked={is1099} onChange={e=>setIs1099(e.target.checked)} style={{ width:18, height:18 }} />
+              <strong style={{ color:'#8B6914' }}>📋 Requires 1099-NEC</strong>
+              <span style={{ fontSize:'0.78rem', color: TXT_LIGHT }}>(check this for contractors, freelancers — anyone paid $600+ who's not incorporated)</span>
+            </label>
+          </div>
+          <textarea style={{ width:'100%', marginBottom:'1rem' }} rows="2" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Notes (services provided, contract dates, etc.)" />
+          <div style={{ display:'flex', gap:8 }}>
+            <button className="btn btn-navy" onClick={handleSave}>✓ {editing ? 'Save Changes' : 'Save Vendor'}</button>
+            <button className="btn btn-outline" onClick={()=>{ setShowAdd(false); resetForm(); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div className="card" style={{ overflow:'hidden' }}>
+        {vendors.length === 0 ? (
+          <div style={{ padding:'3rem', textAlign:'center', color: TXT_LIGHT }}>
+            <div style={{ fontSize:'2.5rem', marginBottom:8 }}>🏪</div>
+            <p>No vendors yet.</p>
+            <p style={{ fontSize:'0.85rem', marginTop:8 }}>Track who you pay — utility companies, contractors, suppliers. Required for 1099 reporting at year-end.</p>
+          </div>
+        ) : (
+          <>
+            <div style={{ padding:'12px 16px', background: CREAM, borderBottom:`1px solid ${BORDER}`, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+              <input type="text" placeholder="🔍 Search vendor name, email, phone, tax ID..." value={search} onChange={e=>setSearch(e.target.value)} style={{ flex:1, minWidth:200, padding:'8px 12px', fontSize:'0.88rem', borderRadius:6 }} />
+              <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:'0.85rem', cursor:'pointer' }}>
+                <input type="checkbox" checked={show1099Only} onChange={e=>setShow1099Only(e.target.checked)} />
+                📋 1099 only
+              </label>
+              <span style={{ fontSize:'0.82rem', color: TXT_LIGHT }}>{vendors.length} total</span>
+            </div>
+
+            {selectedIds.length > 0 && (
+              <div style={{ background: GOLD_PALE, padding:'10px 14px', borderBottom:`1px solid ${GOLD}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <span style={{ fontSize:'0.85rem', fontWeight:700, color:'#8B6914' }}>✓ {selectedIds.length} selected</span>
+                <div style={{ display:'flex', gap:6 }}>
+                  <button onClick={()=>setSelectedIds([])} style={{ padding:'5px 10px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, background:'#fff', color: NAVY, border:`1px solid ${BORDER}`, cursor:'pointer' }}>Clear</button>
+                  <button onClick={handleBulkDelete} style={{ padding:'5px 12px', borderRadius:6, fontSize:'0.78rem', fontWeight:700, background: RED, color:'#fff', border:'none', cursor:'pointer' }}>🗑 Delete {selectedIds.length}</button>
+                </div>
+              </div>
+            )}
+
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.9rem' }}>
+              <thead><tr style={{ borderBottom:`1px solid ${BORDER}`, background: CREAM }}>
+                <th style={{ padding:'10px 8px 10px 14px', width:30 }}>
+                  <input type="checkbox" checked={selectedIds.length === sorted.length && sorted.length > 0} onChange={e => setSelectedIds(e.target.checked ? sorted.map(v => v.id) : [])} />
+                </th>
+                <th style={hStyle('name')} onClick={()=>handleSort('name')}>Name {sortIcon('name')}</th>
+                <th style={{ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase', textAlign:'left' }}>Contact</th>
+                <th style={{ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase', textAlign:'center' }}>1099?</th>
+                <th style={hStyle('total')} onClick={()=>handleSort('total')}>Total Paid {sortIcon('total')}</th>
+                <th style={hStyle('count')} onClick={()=>handleSort('count')}># Txs {sortIcon('count')}</th>
+                <th></th>
+              </tr></thead>
+              <tbody>
+                {sorted.length === 0 && <tr><td colSpan={7} style={{ padding:'2rem', textAlign:'center', color: TXT_LIGHT }}>No matches</td></tr>}
+                {sorted.map(v => {
+                  const total = vendorTotals[v.id] || 0;
+                  const count = transactions.filter(t => t.vendor_id === v.id).length;
+                  const isChecked = selectedIds.includes(v.id);
+                  const total1099 = vendor1099Totals[v.id] || 0;
+                  return (
+                    <tr key={v.id} style={{ borderBottom:`1px solid #F4F6FA`, background: isChecked ? '#FDF7E8' : 'transparent' }}>
+                      <td style={{ padding:'10px 8px 10px 14px' }}>
+                        <input type="checkbox" checked={isChecked} onChange={e => {
+                          if (e.target.checked) setSelectedIds(prev => [...prev, v.id]);
+                          else setSelectedIds(prev => prev.filter(id => id !== v.id));
+                        }} />
+                      </td>
+                      <td style={{ padding:'12px', color: NAVY, fontWeight:600 }}>
+                        {v.name}
+                        {v.default_category && <div style={{ fontSize:'0.72rem', color: TXT_LIGHT, fontWeight:400 }}>→ {v.default_category}</div>}
+                      </td>
+                      <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.82rem' }}>
+                        {v.email && <div>{v.email}</div>}
+                        {v.phone && <div>{v.phone}</div>}
+                      </td>
+                      <td style={{ padding:'12px', textAlign:'center' }}>
+                        {v.is_1099 ? (
+                          <span style={{ background: total1099 >= 600 ? GOLD_PALE : SAGE, color: total1099 >= 600 ? '#8B6914' : FOREST, padding:'3px 8px', borderRadius:6, fontSize:'0.72rem', fontWeight:700 }}>
+                            {total1099 >= 600 ? `📋 ${year1099}` : '✓'}
+                            {!v.tax_id && total1099 >= 600 && <span style={{ color: RED, marginLeft:4 }}>⚠ No EIN</span>}
+                          </span>
+                        ) : <span style={{ color: TXT_LIGHT, fontSize:'0.78rem' }}>—</span>}
+                      </td>
+                      <td style={{ padding:'12px', fontWeight:700, color: RED }}>{fmt(total)}</td>
+                      <td style={{ padding:'12px', color: TXT_LIGHT }}>{count}</td>
+                      <td style={{ padding:'12px', whiteSpace:'nowrap' }}>
+                        <button onClick={()=>{
+                          setEditing(v); setName(v.name); setEmail(v.email||''); setPhone(v.phone||'');
+                          setAddress(v.address||''); setTaxId(v.tax_id||''); setDefaultCategory(v.default_category||'');
+                          setIs1099(v.is_1099||false); setNotes(v.notes||''); setShowAdd(true);
+                        }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color: NAVY, marginRight:4 }}>✏️</button>
+                        <button onClick={()=>handleDelete(v.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color: TXT_LIGHT }}>🗑</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </>
         )}
       </div>
