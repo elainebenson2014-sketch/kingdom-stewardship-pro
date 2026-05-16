@@ -635,6 +635,7 @@ function Dashboard({ user, onLogout }) {
             { id:'transactions', icon:'💰', label:'Transactions' },
             { id:'donors', icon:'👥', label: orgConfig.donorLabel },
             { id:'vendors', icon:'🏪', label:'Vendors' },
+            { id:'recurring', icon:'🔄', label:'Recurring' },
             ...(orgConfig.hasFunds ? [{ id:'funds', icon:'🏦', label:'Funds' }] : []),
             { id:'reports', icon:'📄', label:'Reports' },
             { id:'statements', icon:'📃', label:'Statements' },
@@ -662,6 +663,7 @@ function Dashboard({ user, onLogout }) {
         {tab === 'transactions' && <TransactionsTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} setDonors={setDonors} vendors={vendors} setVendors={setVendors} funds={funds} orgConfig={orgConfig} />}
         {tab === 'donors' && <DonorsTab user={user} donors={donors} setDonors={setDonors} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
         {tab === 'vendors' && <VendorsTab user={user} vendors={vendors} setVendors={setVendors} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
+        {tab === 'recurring' && <RecurringTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} vendors={vendors} funds={funds} orgConfig={orgConfig} />}
         {tab === 'funds' && orgConfig.hasFunds && <FundsTab user={user} funds={funds} setFunds={setFunds} transactions={transactions} />}
         {tab === 'reports' && <ReportsTab transactions={transactions} donors={donors} vendors={vendors} orgConfig={orgConfig} />}
         {tab === 'statements' && <StatementsTab user={user} donors={donors} transactions={transactions} orgConfig={orgConfig} orgName={orgName} />}
@@ -1659,7 +1661,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
                         <th style={headerStyle('date')} onClick={()=>handleSort('date')}>Date {sortIcon('date')}</th>
                         <th style={headerStyle('type')} onClick={()=>handleSort('type')}>Type {sortIcon('type')}</th>
                         <th style={headerStyle('desc')} onClick={()=>handleSort('desc')}>Description {sortIcon('desc')}</th>
-                        <th style={headerStyle('donor')} onClick={()=>handleSort('donor')}>Donor {sortIcon('donor')}</th>
+                        <th style={headerStyle('donor')} onClick={()=>handleSort('donor')}>Donor / Vendor {sortIcon('donor')}</th>
                         <th style={headerStyle('cat')} onClick={()=>handleSort('cat')}>Category {sortIcon('cat')}</th>
                         <th style={headerStyle('amt')} onClick={()=>handleSort('amt')}>Amount {sortIcon('amt')}</th>
                         <th></th>
@@ -1684,14 +1686,34 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
                         <td style={{ padding:'12px' }}><span style={{ background: t.type==='income'?SAGE:RED_PALE, color: t.type==='income'?FOREST:RED, padding:'2px 8px', borderRadius:6, fontSize:'0.72rem', fontWeight:700 }}>{t.type==='income'?'IN':'OUT'}</span></td>
                         <td style={{ padding:'12px', color: NAVY }}>{t.description || '—'}</td>
                         <td style={{ padding:'12px' }}>
-                          <select value={t.donor_id || ''} onChange={async (e) => {
-                            const newDonorId = e.target.value || null;
-                            setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, donor_id: newDonorId } : x));
-                            try { const sb = await getSupabase(); await sb.from('ksp_transactions').update({ donor_id: newDonorId }).eq('id', t.id); } catch(err) { console.log('Update donor:', err); }
-                          }} style={{ background: donor ? '#fff' : '#FFF3F3', color: donor ? NAVY : RED, padding:'4px 8px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, border:`1px solid ${donor ? BORDER : RED}`, cursor:'pointer', maxWidth:160 }}>
-                            <option value="">⚠ None</option>
-                            {donors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                          </select>
+                          {t.type === 'income' ? (
+                            <select value={t.donor_id || ''} onChange={async (e) => {
+                              const newDonorId = e.target.value || null;
+                              setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, donor_id: newDonorId, vendor_id: null } : x));
+                              try { const sb = await getSupabase(); await sb.from('ksp_transactions').update({ donor_id: newDonorId, vendor_id: null }).eq('id', t.id); } catch(err) { console.log('Update donor:', err); }
+                            }} style={{ background: donor ? '#fff' : '#FFF3F3', color: donor ? NAVY : RED, padding:'4px 8px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, border:`1px solid ${donor ? BORDER : RED}`, cursor:'pointer', maxWidth:160 }}>
+                              <option value="">⚠ Donor</option>
+                              {[...donors].sort((a,b)=>a.name.localeCompare(b.name)).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                            </select>
+                          ) : (
+                            (() => {
+                              const vendor = vendors.find(v => v.id === t.vendor_id);
+                              return (
+                                <select value={t.vendor_id || ''} onChange={async (e) => {
+                                  const newVendorId = e.target.value || null;
+                                  // Optionally auto-apply vendor's default category
+                                  const v = vendors.find(x => x.id === newVendorId);
+                                  const update = { vendor_id: newVendorId, donor_id: null };
+                                  if (v && v.default_category) update.category = v.default_category;
+                                  setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, ...update } : x));
+                                  try { const sb = await getSupabase(); await sb.from('ksp_transactions').update(update).eq('id', t.id); } catch(err) { console.log('Update vendor:', err); }
+                                }} style={{ background: vendor ? '#fff' : '#FFF8E1', color: vendor ? NAVY : '#8B6914', padding:'4px 8px', borderRadius:6, fontSize:'0.78rem', fontWeight:600, border:`1px solid ${vendor ? BORDER : GOLD}`, cursor:'pointer', maxWidth:160 }}>
+                                  <option value="">🏪 Vendor</option>
+                                  {[...vendors].sort((a,b)=>a.name.localeCompare(b.name)).map(v => <option key={v.id} value={v.id}>{v.name}{v.is_1099?' 📋':''}</option>)}
+                                </select>
+                              );
+                            })()
+                          )}
                         </td>
                         <td style={{ padding:'12px' }}>
                           <select value={t.category || 'Other'} onChange={async (e) => {
@@ -2142,6 +2164,174 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
               );
             })()}
           </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============ RECURRING TAB ============
+function RecurringTab({ user, transactions, setTransactions, donors, vendors, funds, orgConfig }) {
+  const userKey = user?.email ? user.email.toLowerCase().replace(/[^a-z0-9]/g,'_') : 'guest';
+  const storageKey = `ksp_${userKey}_recurring`;
+
+  const [templates, setTemplates] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(storageKey) || '[]'); } catch { return []; }
+  });
+  useEffect(() => { try { localStorage.setItem(storageKey, JSON.stringify(templates)); } catch {} }, [templates, storageKey]);
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [name, setName] = useState('');
+  const [type, setType] = useState('expense');
+  const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('');
+  const [description, setDescription] = useState('');
+  const [vendorId, setVendorId] = useState('');
+  const [dayOfMonth, setDayOfMonth] = useState(1);
+  const [frequency, setFrequency] = useState('monthly');
+
+  const resetForm = () => {
+    setName(''); setType('expense'); setAmount(''); setCategory(''); setDescription('');
+    setVendorId(''); setDayOfMonth(1); setFrequency('monthly'); setEditing(null);
+  };
+
+  const handleSave = () => {
+    if (!name || !amount) { alert('Name and amount required'); return; }
+    const tmpl = { id: editing?.id || 'rec_' + Date.now(), name, type, amount: parseFloat(amount), category, description, vendorId, dayOfMonth: parseInt(dayOfMonth), frequency };
+    if (editing) setTemplates(p => p.map(t => t.id === editing.id ? tmpl : t));
+    else setTemplates(p => [...p, tmpl]);
+    setShowAdd(false); resetForm();
+  };
+
+  // Generate this month's transactions from templates
+  const generateForMonth = async (template, monthDate) => {
+    const yr = monthDate.getFullYear();
+    const mo = monthDate.getMonth();
+    const day = Math.min(template.dayOfMonth, new Date(yr, mo+1, 0).getDate());
+    const date = `${yr}-${String(mo+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    // Check if already exists (by description match for this month)
+    const existing = transactions.find(t => 
+      t.date.startsWith(`${yr}-${String(mo+1).padStart(2,'0')}`) &&
+      t.description === template.description &&
+      parseFloat(t.amount) === template.amount
+    );
+    if (existing) return null;
+    const newTx = {
+      id: 'tx_rec_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
+      user_id: user.id,
+      type: template.type,
+      date,
+      amount: template.amount,
+      category: template.category,
+      description: template.description || template.name,
+      donor_id: null,
+      vendor_id: template.vendorId || null,
+      fund_id: null,
+      notes: 'Auto-created from recurring template',
+    };
+    return newTx;
+  };
+
+  const handleGenerateThisMonth = async () => {
+    const now = new Date();
+    const newTxs = [];
+    for (const tmpl of templates) {
+      const tx = await generateForMonth(tmpl, now);
+      if (tx) newTxs.push(tx);
+    }
+    if (newTxs.length === 0) {
+      alert('No new transactions to create. All recurring items for this month already exist!');
+      return;
+    }
+    if (!confirm(`Generate ${newTxs.length} recurring transactions for ${MONTHS[now.getMonth()]} ${now.getFullYear()}?`)) return;
+    setTransactions(p => [...p, ...newTxs]);
+    try {
+      const sb = await getSupabase();
+      const { error } = await sb.from('ksp_transactions').insert(newTxs);
+      if (error) alert('Save error: ' + error.message);
+      else alert(`✓ Created ${newTxs.length} recurring transactions for ${MONTHS[now.getMonth()]}!`);
+    } catch(e) { console.log('Save recurring:', e); }
+  };
+
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:8 }}>
+        <h2 style={{ fontSize:'1.6rem' }}>🔄 Recurring Transactions</h2>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          {templates.length > 0 && <button className="btn btn-outline" onClick={handleGenerateThisMonth} style={{ background: GOLD_PALE, color:'#8B6914', borderColor: GOLD }}>⚡ Generate This Month's</button>}
+          <button className="btn btn-navy" onClick={()=>{ resetForm(); setShowAdd(true); }}>+ Add Recurring</button>
+        </div>
+      </div>
+
+      <div className="card card-p" style={{ marginBottom:'1.5rem', background: SAGE, borderLeft:`4px solid ${FOREST}` }}>
+        <p style={{ color: FOREST, fontSize:'0.92rem' }}>
+          💡 <strong>How it works:</strong> Create templates for monthly rent, utilities, salaries, subscriptions. Click <strong>"⚡ Generate This Month's"</strong> at the start of each month to auto-create all your recurring transactions.
+        </p>
+      </div>
+
+      {showAdd && (
+        <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${GOLD}` }}>
+          <h3 style={{ marginBottom:'1rem' }}>{editing ? '✏️ Edit Recurring' : '+ New Recurring Template'}</h3>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem', marginBottom:'1rem' }}>
+            <input style={{ width:'100%' }} value={name} onChange={e=>setName(e.target.value)} placeholder="Template name (e.g., Monthly Rent, Pastor Salary)" />
+            <select style={{ width:'100%' }} value={type} onChange={e=>setType(e.target.value)}>
+              <option value="expense">🧾 Expense</option>
+              <option value="income">💵 Income</option>
+            </select>
+            <input style={{ width:'100%' }} type="number" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="Amount" />
+            <select style={{ width:'100%' }} value={category} onChange={e=>setCategory(e.target.value)}>
+              <option value="">— Choose category —</option>
+              {(type === 'income' ? orgConfig.incomeCategories : orgConfig.expenseCategories).map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            {type === 'expense' && (
+              <select style={{ width:'100%' }} value={vendorId} onChange={e=>setVendorId(e.target.value)}>
+                <option value="">— Vendor (optional) —</option>
+                {[...vendors].sort((a,b)=>a.name.localeCompare(b.name)).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            )}
+            <select style={{ width:'100%' }} value={dayOfMonth} onChange={e=>setDayOfMonth(e.target.value)}>
+              {[...Array(31)].map((_,i) => <option key={i+1} value={i+1}>Day {i+1} of month</option>)}
+            </select>
+          </div>
+          <input style={{ width:'100%', marginBottom:'1rem' }} value={description} onChange={e=>setDescription(e.target.value)} placeholder="Description (e.g., May Rent — Building Lease)" />
+          <div style={{ display:'flex', gap:8 }}>
+            <button className="btn btn-navy" onClick={handleSave}>✓ {editing ? 'Save Changes' : 'Save Template'}</button>
+            <button className="btn btn-outline" onClick={()=>{ setShowAdd(false); resetForm(); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div className="card" style={{ overflow:'hidden' }}>
+        {templates.length === 0 ? (
+          <div style={{ padding:'3rem', textAlign:'center', color: TXT_LIGHT }}>
+            <div style={{ fontSize:'2.5rem', marginBottom:8 }}>🔄</div>
+            <p>No recurring transactions yet.</p>
+            <p style={{ fontSize:'0.85rem', marginTop:8 }}>Add templates for things you pay/receive every month — rent, salaries, utilities, regular tithes.</p>
+          </div>
+        ) : (
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.9rem' }}>
+            <thead><tr style={{ borderBottom:`1px solid ${BORDER}`, background: CREAM }}>
+              {['Name','Type','Day','Category','Amount',''].map(h => <th key={h} style={{ padding:'12px', fontSize:'0.72rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase', textAlign:'left' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {templates.map(t => (
+                <tr key={t.id} style={{ borderBottom:`1px solid #F4F6FA` }}>
+                  <td style={{ padding:'12px', color: NAVY, fontWeight:600 }}>{t.name}</td>
+                  <td style={{ padding:'12px' }}>
+                    <span style={{ background: t.type==='income'?SAGE:RED_PALE, color: t.type==='income'?FOREST:RED, padding:'2px 8px', borderRadius:6, fontSize:'0.72rem', fontWeight:700 }}>{t.type==='income'?'IN':'OUT'}</span>
+                  </td>
+                  <td style={{ padding:'12px', color: TXT_LIGHT }}>Day {t.dayOfMonth}</td>
+                  <td style={{ padding:'12px', color: TXT_LIGHT, fontSize:'0.85rem' }}>{t.category}</td>
+                  <td style={{ padding:'12px', fontWeight:700, color: t.type==='income'?FOREST:RED }}>{t.type==='income'?'+':'-'}{fmt(t.amount)}</td>
+                  <td style={{ padding:'12px', whiteSpace:'nowrap' }}>
+                    <button onClick={()=>{ setEditing(t); setName(t.name); setType(t.type); setAmount(t.amount); setCategory(t.category); setDescription(t.description); setVendorId(t.vendorId); setDayOfMonth(t.dayOfMonth); setShowAdd(true); }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color: NAVY, marginRight:4 }}>✏️</button>
+                    <button onClick={()=>{ if(confirm('Delete this recurring template?')) setTemplates(p => p.filter(x => x.id !== t.id)); }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color: TXT_LIGHT }}>🗑</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>
@@ -2981,7 +3171,23 @@ function StatementsTab({ user, donors, transactions, orgConfig, orgName }) {
           <p style={{ fontSize:'0.8rem', color: TXT_LIGHT, lineHeight:1.6, marginTop:'1.5rem' }}>
             <strong>Important:</strong> No goods or services were provided in exchange for these contributions, except as noted. Please retain this statement for your tax records. {orgName} is a registered {orgConfig.id === 'church' ? '501(c)(3) religious organization' : '501(c)(3) nonprofit'}.
           </p>
-          <button className="btn btn-navy" style={{ marginTop:'1.5rem', width:'100%' }} onClick={()=>window.print()}>🖨️ Print This Statement</button>
+          <div style={{ display:'flex', gap:8, marginTop:'1.5rem' }}>
+            <button className="btn btn-navy" style={{ flex:1 }} onClick={()=>window.print()}>🖨️ Print This Statement</button>
+            {selectedDonor.email && (
+              <button className="btn btn-outline" style={{ flex:1 }} onClick={() => {
+                const stmt = generateStatement(selectedDonor);
+                const total = stmt.reduce((s,t)=>s+parseFloat(t.amount||0), 0);
+                const subject = `Your ${year} Giving Statement from ${orgName}`;
+                const body = `Dear ${selectedDonor.name},\n\nThank you for your generous support of ${orgName} in ${year}!\n\nYour total contributions for tax year ${year}: $${total.toFixed(2)}\nNumber of gifts: ${stmt.length}\n\nA detailed giving statement is being prepared. Please contact us if you need a printed copy mailed to you.\n\nIMPORTANT TAX INFORMATION:\nNo goods or services were provided in exchange for these contributions, except as noted. Please retain this statement for your tax records. ${orgName} is a registered ${orgConfig.id === 'church' ? '501(c)(3) religious organization' : '501(c)(3) nonprofit'}.\n\nWith gratitude,\n${orgName}`;
+                window.location.href = `mailto:${selectedDonor.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+              }}>📧 Email to {selectedDonor.email.length > 25 ? selectedDonor.email.slice(0,22)+'...' : selectedDonor.email}</button>
+            )}
+          </div>
+          {!selectedDonor.email && (
+            <p style={{ fontSize:'0.8rem', color: TXT_LIGHT, marginTop:8, fontStyle:'italic', textAlign:'center' }}>
+              💡 Add an email to this donor to enable email statements
+            </p>
+          )}
         </div>
       ) : (
         <div className="card" style={{ overflow:'hidden' }}>
