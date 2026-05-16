@@ -2258,7 +2258,7 @@ function ReportsTab({ transactions, donors, orgConfig }) {
   // Export full report as CSV
   const exportReport = () => {
     const rows = [
-      [`${orgConfig.termsFor.income.toUpperCase()} & ${orgConfig.termsFor.expenses.toUpperCase()} REPORT — ${periodLabel}`],
+      [`${orgConfig.termsFor.income.toUpperCase()} & ${orgConfig.termsFor.expense.toUpperCase()} REPORT — ${periodLabel}`],
       [],
       [orgConfig.termsFor.income.toUpperCase()],
       ['Category', 'Amount'],
@@ -2266,10 +2266,10 @@ function ReportsTab({ transactions, donors, orgConfig }) {
     Object.entries(incomeByCategory).sort((a,b)=>b[1]-a[1]).forEach(([cat,amt]) => rows.push([cat, amt.toFixed(2)]));
     rows.push([`Total ${orgConfig.termsFor.income}`, totalIncome.toFixed(2)]);
     rows.push([]);
-    rows.push([orgConfig.termsFor.expenses.toUpperCase()]);
+    rows.push([orgConfig.termsFor.expense.toUpperCase()]);
     rows.push(['Category', 'Amount']);
     Object.entries(expensesByCategory).sort((a,b)=>b[1]-a[1]).forEach(([cat,amt]) => rows.push([cat, amt.toFixed(2)]));
-    rows.push([`Total ${orgConfig.termsFor.expenses}`, totalExpenses.toFixed(2)]);
+    rows.push([`Total ${orgConfig.termsFor.expense}`, totalExpenses.toFixed(2)]);
     rows.push([]);
     rows.push([orgConfig.termsFor.net.toUpperCase(), net.toFixed(2)]);
     rows.push([]);
