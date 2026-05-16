@@ -3178,9 +3178,11 @@ function StatementsTab({ user, donors, transactions, orgConfig, orgName }) {
                 const stmt = generateStatement(selectedDonor);
                 const total = stmt.reduce((s,t)=>s+parseFloat(t.amount||0), 0);
                 const subject = `Your ${year} Giving Statement from ${orgName}`;
-                const body = `Dear ${selectedDonor.name},\n\nThank you for your generous support of ${orgName} in ${year}!\n\nYour total contributions for tax year ${year}: $${total.toFixed(2)}\nNumber of gifts: ${stmt.length}\n\nA detailed giving statement is being prepared. Please contact us if you need a printed copy mailed to you.\n\nIMPORTANT TAX INFORMATION:\nNo goods or services were provided in exchange for these contributions, except as noted. Please retain this statement for your tax records. ${orgName} is a registered ${orgConfig.id === 'church' ? '501(c)(3) religious organization' : '501(c)(3) nonprofit'}.\n\nWith gratitude,\n${orgName}`;
-                window.location.href = `mailto:${selectedDonor.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-              }}>📧 Email to {selectedDonor.email.length > 25 ? selectedDonor.email.slice(0,22)+'...' : selectedDonor.email}</button>
+                const body = `Dear ${selectedDonor.name},\n\nThank you for your generous support of ${orgName} in ${year}!\n\nYour total contributions for tax year ${year}: $${total.toFixed(2)}\nNumber of gifts: ${stmt.length}\n\nDetailed gifts:\n${stmt.map(t => `  ${t.date} — $${parseFloat(t.amount||0).toFixed(2)} (${t.category})`).join('\n')}\n\nIMPORTANT TAX INFORMATION:\nNo goods or services were provided in exchange for these contributions, except as noted. Please retain this statement for your tax records. ${orgName} is a registered ${orgConfig.id === 'church' ? '501(c)(3) religious organization' : '501(c)(3) nonprofit'}.\n\nWith gratitude,\n${orgName}`;
+                // Open Gmail Compose in new tab (works with Gmail webmail)
+                const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(selectedDonor.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                window.open(gmailUrl, '_blank');
+              }}>📧 Email via Gmail</button>
             )}
           </div>
           {!selectedDonor.email && (
