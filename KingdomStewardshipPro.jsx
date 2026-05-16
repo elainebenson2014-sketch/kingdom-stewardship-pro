@@ -655,7 +655,7 @@ function Dashboard({ user, onLogout }) {
         {tab === 'transactions' && <TransactionsTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} setDonors={setDonors} funds={funds} orgConfig={orgConfig} />}
         {tab === 'donors' && <DonorsTab user={user} donors={donors} setDonors={setDonors} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
         {tab === 'funds' && orgConfig.hasFunds && <FundsTab user={user} funds={funds} setFunds={setFunds} transactions={transactions} />}
-        {tab === 'reports' && <ReportsTab transactions={transactions} orgConfig={orgConfig} />}
+        {tab === 'reports' && <ReportsTab transactions={transactions} donors={donors} orgConfig={orgConfig} />}
         {tab === 'statements' && <StatementsTab user={user} donors={donors} transactions={transactions} orgConfig={orgConfig} orgName={orgName} />}
         {tab === 'settings' && <SettingsTab user={user} orgName={orgName} setOrgName={setOrgName} orgType={orgType} setOrgType={setOrgType} customIncomeCats={customIncomeCats} setCustomIncomeCats={setCustomIncomeCats} customExpenseCats={customExpenseCats} setCustomExpenseCats={setCustomExpenseCats} />}
       </main>
@@ -1179,6 +1179,57 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
         <h2 style={{ fontSize:'1.6rem' }}>💰 Transactions</h2>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
           <button className="btn btn-outline" onClick={()=>setShowBulk(true)} style={{ background: GOLD_PALE, color:'#8B6914', borderColor: GOLD }}>⚡ Bulk Entry</button>
+          <button className="btn btn-outline" onClick={() => {
+            // Export transactions as CSV (applies current filters)
+            const filtered = transactions.filter(t => {
+              const d = new Date(t.date);
+              if (d.getFullYear() !== filterYear) return false;
+              if (filterMonth !== 'all' && d.getMonth() !== parseInt(filterMonth)) return false;
+              if (filterType !== 'all' && t.type !== filterType) return false;
+              if (filterDonor !== 'all') {
+                if (filterDonor === 'none' && t.donor_id) return false;
+                if (filterDonor !== 'none' && t.donor_id !== filterDonor) return false;
+              }
+              if (filterCategory !== 'all' && t.category !== filterCategory) return false;
+              if (searchText) {
+                const s = searchText.toLowerCase();
+                const donor = donors.find(d => d.id === t.donor_id);
+                const matchDonor = donor && donor.name.toLowerCase().includes(s);
+                const matchDesc = (t.description || '').toLowerCase().includes(s);
+                const matchCat = (t.category || '').toLowerCase().includes(s);
+                const matchAmt = (parseFloat(t.amount || 0)).toFixed(2).includes(s);
+                if (!matchDonor && !matchDesc && !matchCat && !matchAmt) return false;
+              }
+              return true;
+            });
+            if (filtered.length === 0) { alert('No transactions to export with current filters.'); return; }
+            const sorted = [...filtered].sort((a,b)=>new Date(b.date)-new Date(a.date));
+            const rows = [
+              ['Date','Type','Description','Donor','Category','Amount','Notes']
+            ];
+            sorted.forEach(t => {
+              const donor = donors.find(d => d.id === t.donor_id);
+              const esc = (s) => `"${String(s||'').replace(/"/g,'""')}"`;
+              rows.push([
+                t.date,
+                t.type,
+                esc(t.description),
+                esc(donor ? donor.name : ''),
+                t.category,
+                t.type === 'expense' ? -Math.abs(parseFloat(t.amount||0)) : parseFloat(t.amount||0),
+                esc(t.notes || '')
+              ].join(','));
+            });
+            const csv = rows.join('\n');
+            const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const dateStr = new Date().toISOString().slice(0,10);
+            a.download = `transactions_${dateStr}.csv`;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }}>📤 Export CSV</button>
           <label className="btn btn-outline" style={{ cursor:'pointer' }}>
             📥 Import CSV
             <input type="file" accept=".csv" style={{ display:'none' }} onChange={handleCSVUpload} />
@@ -1861,6 +1912,24 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:8 }}>
         <h2 style={{ fontSize:'1.6rem' }}>👥 {orgConfig.donorLabel}</h2>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          <button className="btn btn-outline" onClick={() => {
+            if (donors.length === 0) { alert('No donors to export.'); return; }
+            const rows = [['Name','Email','Phone','Address','Total Given','# Gifts']];
+            [...donors].sort((a,b)=>a.name.localeCompare(b.name)).forEach(d => {
+              const total = donorTotals[d.id] || 0;
+              const gifts = transactions.filter(t => t.donor_id === d.id).length;
+              const esc = (s) => `"${String(s||'').replace(/"/g,'""')}"`;
+              rows.push([esc(d.name), esc(d.email), esc(d.phone), esc(d.address), total.toFixed(2), gifts].join(','));
+            });
+            const csv = rows.join('\n');
+            const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `donors_${new Date().toISOString().slice(0,10)}.csv`;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }}>📤 Export CSV</button>
           <button className="btn btn-outline" onClick={handleDedupe} style={{ background:'#FFF3F3', color: RED, borderColor: RED }}>🧹 Find Duplicates</button>
           <button className="btn btn-outline" onClick={async () => {
             // Re-link transactions to donors by matching name
@@ -2140,20 +2209,43 @@ function FundsTab({ user, funds, setFunds, transactions }) {
 }
 
 // ============ REPORTS TAB ============
-function ReportsTab({ transactions, orgConfig }) {
+function ReportsTab({ transactions, donors, orgConfig }) {
   const [year, setYear] = useState(new Date().getFullYear());
+  const [customMode, setCustomMode] = useState(false);
+  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10));
+  const [endDate, setEndDate] = useState(new Date().toISOString().slice(0,10));
+  const [showByDonor, setShowByDonor] = useState(false);
+  const [showByMonth, setShowByMonth] = useState(false);
 
-  const yearTxs = transactions.filter(t => new Date(t.date).getFullYear() === year);
+  // Apply date filter
+  const filteredTxs = transactions.filter(t => {
+    if (customMode) {
+      return t.date >= startDate && t.date <= endDate;
+    } else {
+      return new Date(t.date).getFullYear() === year;
+    }
+  });
+
+  const yearTxs = filteredTxs;
   const incomeByCategory = {};
   const expensesByCategory = {};
-  const excludedByCategory = {};  // Tithely deposits, transfers, etc.
+  const excludedByCategory = {};
+  const incomeByDonor = {};
+  const incomeByMonth = {};  // {YYYY-MM: amount}
+
   yearTxs.forEach(t => {
+    const amt = parseFloat(t.amount||0);
     if (EXCLUDED_FROM_PL.includes(t.category)) {
-      excludedByCategory[t.category] = (excludedByCategory[t.category] || 0) + parseFloat(t.amount||0);
+      excludedByCategory[t.category] = (excludedByCategory[t.category] || 0) + amt;
     } else if (t.type === 'income') {
-      incomeByCategory[t.category] = (incomeByCategory[t.category] || 0) + parseFloat(t.amount||0);
+      incomeByCategory[t.category] = (incomeByCategory[t.category] || 0) + amt;
+      if (t.donor_id) {
+        incomeByDonor[t.donor_id] = (incomeByDonor[t.donor_id] || 0) + amt;
+      }
+      const monthKey = t.date.slice(0,7);
+      incomeByMonth[monthKey] = (incomeByMonth[monthKey] || 0) + amt;
     } else {
-      expensesByCategory[t.category] = (expensesByCategory[t.category] || 0) + parseFloat(t.amount||0);
+      expensesByCategory[t.category] = (expensesByCategory[t.category] || 0) + amt;
     }
   });
 
@@ -2161,21 +2253,84 @@ function ReportsTab({ transactions, orgConfig }) {
   const totalExpenses = Object.values(expensesByCategory).reduce((s,v)=>s+v, 0);
   const totalExcluded = Object.values(excludedByCategory).reduce((s,v)=>s+v, 0);
   const net = totalIncome - totalExpenses;
+  const periodLabel = customMode ? `${startDate} to ${endDate}` : `Year ${year}`;
+
+  // Export full report as CSV
+  const exportReport = () => {
+    const rows = [
+      [`${orgConfig.termsFor.income.toUpperCase()} & ${orgConfig.termsFor.expenses.toUpperCase()} REPORT — ${periodLabel}`],
+      [],
+      [orgConfig.termsFor.income.toUpperCase()],
+      ['Category', 'Amount'],
+    ];
+    Object.entries(incomeByCategory).sort((a,b)=>b[1]-a[1]).forEach(([cat,amt]) => rows.push([cat, amt.toFixed(2)]));
+    rows.push([`Total ${orgConfig.termsFor.income}`, totalIncome.toFixed(2)]);
+    rows.push([]);
+    rows.push([orgConfig.termsFor.expenses.toUpperCase()]);
+    rows.push(['Category', 'Amount']);
+    Object.entries(expensesByCategory).sort((a,b)=>b[1]-a[1]).forEach(([cat,amt]) => rows.push([cat, amt.toFixed(2)]));
+    rows.push([`Total ${orgConfig.termsFor.expenses}`, totalExpenses.toFixed(2)]);
+    rows.push([]);
+    rows.push([orgConfig.termsFor.net.toUpperCase(), net.toFixed(2)]);
+    rows.push([]);
+    if (Object.keys(excludedByCategory).length > 0) {
+      rows.push(['EXCLUDED FROM P&L (Bookkeeping Only)']);
+      rows.push(['Category', 'Amount']);
+      Object.entries(excludedByCategory).forEach(([cat,amt]) => rows.push([cat, amt.toFixed(2)]));
+    }
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `report_${customMode ? startDate+'_to_'+endDate : year}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:8 }}>
         <h2 style={{ fontSize:'1.6rem' }}>📄 Reports</h2>
-        <select value={year} onChange={e=>setYear(parseInt(e.target.value))} style={{ padding:'8px 12px' }}>
-          {[2024,2025,2026].map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+          <button className="btn btn-outline" onClick={exportReport}>📤 Export Report</button>
+          <button className="btn btn-outline" onClick={()=>window.print()}>🖨️ Print</button>
+        </div>
+      </div>
+
+      {/* Date Range Selector */}
+      <div className="card card-p" style={{ marginBottom:'1rem', display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
+        <span style={{ fontSize:'0.78rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase' }}>Period:</span>
+        <button onClick={()=>setCustomMode(false)} style={{ padding:'6px 14px', borderRadius:6, fontSize:'0.85rem', fontWeight:600, background: !customMode ? NAVY : '#fff', color: !customMode ? '#fff' : NAVY, border:`1px solid ${NAVY}`, cursor:'pointer' }}>Annual</button>
+        <button onClick={()=>setCustomMode(true)} style={{ padding:'6px 14px', borderRadius:6, fontSize:'0.85rem', fontWeight:600, background: customMode ? NAVY : '#fff', color: customMode ? '#fff' : NAVY, border:`1px solid ${NAVY}`, cursor:'pointer' }}>Custom Range</button>
+        {!customMode ? (
+          <select value={year} onChange={e=>setYear(parseInt(e.target.value))} style={{ padding:'6px 10px' }}>
+            {[2024,2025,2026].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        ) : (
+          <>
+            <label style={{ fontSize:'0.85rem' }}>From: <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} style={{ padding:'4px 6px' }} /></label>
+            <label style={{ fontSize:'0.85rem' }}>To: <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} style={{ padding:'4px 6px' }} /></label>
+            <div style={{ display:'flex', gap:4 }}>
+              <button onClick={()=>{ const d=new Date(); setStartDate(new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0,10)); setEndDate(new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().slice(0,10)); }} style={{ padding:'4px 8px', fontSize:'0.78rem', borderRadius:4, background: GOLD_PALE, color:'#8B6914', border:'none', cursor:'pointer' }}>This Month</button>
+              <button onClick={()=>{ const d=new Date(); const q=Math.floor(d.getMonth()/3); setStartDate(new Date(d.getFullYear(), q*3, 1).toISOString().slice(0,10)); setEndDate(new Date(d.getFullYear(), q*3+3, 0).toISOString().slice(0,10)); }} style={{ padding:'4px 8px', fontSize:'0.78rem', borderRadius:4, background: GOLD_PALE, color:'#8B6914', border:'none', cursor:'pointer' }}>This Quarter</button>
+              <button onClick={()=>{ const d=new Date(); setStartDate(new Date(d.getFullYear(), 0, 1).toISOString().slice(0,10)); setEndDate(new Date(d.getFullYear(), 11, 31).toISOString().slice(0,10)); }} style={{ padding:'4px 8px', fontSize:'0.78rem', borderRadius:4, background: GOLD_PALE, color:'#8B6914', border:'none', cursor:'pointer' }}>This Year</button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Section Toggles */}
+      <div style={{ display:'flex', gap:8, marginBottom:'1rem', flexWrap:'wrap' }}>
+        <button onClick={()=>setShowByMonth(!showByMonth)} className="btn btn-outline" style={{ background: showByMonth ? NAVY : '#fff', color: showByMonth ? '#fff' : NAVY }}>📅 {showByMonth ? '✓ ' : ''}Monthly Breakdown</button>
+        <button onClick={()=>setShowByDonor(!showByDonor)} className="btn btn-outline" style={{ background: showByDonor ? NAVY : '#fff', color: showByDonor ? '#fff' : NAVY }}>👥 {showByDonor ? '✓ ' : ''}By {orgConfig.donorLabel}</button>
       </div>
 
       {/* P&L Statement */}
       <div className="card" style={{ marginBottom:'1.5rem' }}>
         <div style={{ background: NAVY, color:'#fff', padding:'1rem 1.5rem', borderRadius:'12px 12px 0 0' }}>
           <h3 style={{ color:'#fff', fontSize:'1.2rem' }}>Profit & Loss Statement</h3>
-          <p style={{ fontSize:'0.85rem', color:'#A8B5C8', marginTop:4 }}>For year ending December 31, {year}</p>
+          <p style={{ fontSize:'0.85rem', color:'#A8B5C8', marginTop:4 }}>{customMode ? `${startDate} to ${endDate}` : `For year ending December 31, ${year}`}</p>
         </div>
         <div style={{ padding:'1.5rem' }}>
           {/* Income */}
@@ -2235,6 +2390,99 @@ function ReportsTab({ transactions, orgConfig }) {
           <button className="btn btn-outline" style={{ marginTop:'1rem', width:'100%' }} onClick={()=>window.print()}>🖨️ Print / Export PDF</button>
         </div>
       </div>
+
+      {/* Monthly Breakdown */}
+      {showByMonth && (
+        <div className="card" style={{ marginBottom:'1.5rem' }}>
+          <div style={{ background: NAVY, color:'#fff', padding:'1rem 1.5rem', borderRadius:'12px 12px 0 0' }}>
+            <h3 style={{ color:'#fff', fontSize:'1.2rem' }}>📅 Monthly {orgConfig.termsFor.income}</h3>
+            <p style={{ fontSize:'0.85rem', color:'#A8B5C8', marginTop:4 }}>{periodLabel}</p>
+          </div>
+          <div style={{ padding:'1.5rem' }}>
+            {Object.keys(incomeByMonth).length === 0 ? (
+              <p style={{ color: TXT_LIGHT, textAlign:'center', padding:'1rem' }}>No income data for this period</p>
+            ) : (
+              <table style={{ width:'100%', fontSize:'0.9rem' }}>
+                <thead><tr style={{ borderBottom:`2px solid ${SAGE}` }}>
+                  <th style={{ padding:'8px', textAlign:'left', color: TXT_LIGHT, fontSize:'0.78rem', textTransform:'uppercase' }}>Month</th>
+                  <th style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT, fontSize:'0.78rem', textTransform:'uppercase' }}># Gifts</th>
+                  <th style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT, fontSize:'0.78rem', textTransform:'uppercase' }}>Total</th>
+                  <th style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT, fontSize:'0.78rem', textTransform:'uppercase' }}>Average</th>
+                </tr></thead>
+                <tbody>
+                  {Object.entries(incomeByMonth).sort().map(([m, amt]) => {
+                    const [y, mo] = m.split('-');
+                    const monthTxs = yearTxs.filter(t => t.type === 'income' && !EXCLUDED_FROM_PL.includes(t.category) && t.date.slice(0,7) === m);
+                    const count = monthTxs.length;
+                    const avg = count > 0 ? amt / count : 0;
+                    return (
+                      <tr key={m} style={{ borderBottom:`1px solid #F4F6FA` }}>
+                        <td style={{ padding:'8px', color: NAVY, fontWeight:600 }}>{MONTHS[parseInt(mo)-1]} {y}</td>
+                        <td style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT }}>{count}</td>
+                        <td style={{ padding:'8px', textAlign:'right', fontWeight:700, color: FOREST }}>{fmt(amt)}</td>
+                        <td style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT }}>{fmt(avg)}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{ borderTop:`2px solid ${NAVY}`, background: GOLD_PALE }}>
+                    <td style={{ padding:'10px 8px', fontWeight:700 }}>TOTAL</td>
+                    <td style={{ padding:'10px 8px', textAlign:'right', fontWeight:700 }}>{yearTxs.filter(t => t.type==='income' && !EXCLUDED_FROM_PL.includes(t.category)).length}</td>
+                    <td style={{ padding:'10px 8px', textAlign:'right', fontWeight:700, color: FOREST, fontSize:'1.05rem' }}>{fmt(totalIncome)}</td>
+                    <td></td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Donor Breakdown */}
+      {showByDonor && (
+        <div className="card" style={{ marginBottom:'1.5rem' }}>
+          <div style={{ background: NAVY, color:'#fff', padding:'1rem 1.5rem', borderRadius:'12px 12px 0 0' }}>
+            <h3 style={{ color:'#fff', fontSize:'1.2rem' }}>👥 Giving By {orgConfig.donorLabel}</h3>
+            <p style={{ fontSize:'0.85rem', color:'#A8B5C8', marginTop:4 }}>{periodLabel}</p>
+          </div>
+          <div style={{ padding:'1.5rem' }}>
+            {Object.keys(incomeByDonor).length === 0 ? (
+              <p style={{ color: TXT_LIGHT, textAlign:'center', padding:'1rem' }}>No donor-tagged income for this period</p>
+            ) : (
+              <table style={{ width:'100%', fontSize:'0.9rem' }}>
+                <thead><tr style={{ borderBottom:`2px solid ${SAGE}` }}>
+                  <th style={{ padding:'8px', textAlign:'left', color: TXT_LIGHT, fontSize:'0.78rem', textTransform:'uppercase' }}>Name</th>
+                  <th style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT, fontSize:'0.78rem', textTransform:'uppercase' }}># Gifts</th>
+                  <th style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT, fontSize:'0.78rem', textTransform:'uppercase' }}>Total</th>
+                  <th style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT, fontSize:'0.78rem', textTransform:'uppercase' }}>Average</th>
+                </tr></thead>
+                <tbody>
+                  {Object.entries(incomeByDonor).sort((a,b) => b[1] - a[1]).map(([donorId, amt]) => {
+                    const donor = donors.find(d => d.id === donorId);
+                    if (!donor) return null;
+                    const donorTxs = yearTxs.filter(t => t.type === 'income' && !EXCLUDED_FROM_PL.includes(t.category) && t.donor_id === donorId);
+                    const count = donorTxs.length;
+                    const avg = count > 0 ? amt / count : 0;
+                    return (
+                      <tr key={donorId} style={{ borderBottom:`1px solid #F4F6FA` }}>
+                        <td style={{ padding:'8px', color: NAVY, fontWeight:600 }}>{donor.name}</td>
+                        <td style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT }}>{count}</td>
+                        <td style={{ padding:'8px', textAlign:'right', fontWeight:700, color: FOREST }}>{fmt(amt)}</td>
+                        <td style={{ padding:'8px', textAlign:'right', color: TXT_LIGHT }}>{fmt(avg)}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{ borderTop:`2px solid ${NAVY}`, background: GOLD_PALE }}>
+                    <td style={{ padding:'10px 8px', fontWeight:700 }}>TOTAL ({Object.keys(incomeByDonor).length} donors)</td>
+                    <td style={{ padding:'10px 8px', textAlign:'right', fontWeight:700 }}>{Object.values(incomeByDonor).length > 0 ? yearTxs.filter(t => t.type==='income' && !EXCLUDED_FROM_PL.includes(t.category) && t.donor_id).length : 0}</td>
+                    <td style={{ padding:'10px 8px', textAlign:'right', fontWeight:700, color: FOREST, fontSize:'1.05rem' }}>{fmt(Object.values(incomeByDonor).reduce((s,v)=>s+v,0))}</td>
+                    <td></td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
