@@ -35,6 +35,7 @@ const RED_PALE = '#FFF3F3';
 // Categories that are EXCLUDED from P&L (they're bookkeeping entries, not real income/expense)
 const EXCLUDED_FROM_PL = [
   'Tithely Deposit',     // Tithely batch deposits to bank (already counted individually)
+  'Givelify Deposit',    // Givelify batch deposits to bank (already counted individually)
   'Stripe Deposit',       // Stripe payouts (already counted)
   'PayPal Deposit',       // PayPal transfers (already counted)
   'Transfer In',          // Account-to-account transfers
@@ -62,7 +63,7 @@ const INCOME_CATEGORIES_CHURCH = [
   'Tuition (Christian School)', 'Daycare Income',
   'Sunday School Offering', 'Vacation Bible School',
   'Online Giving', 'Stock / Asset Donations',
-  'Tithely Deposit', 'Stripe Deposit', 'PayPal Deposit',
+  'Tithely Deposit', 'Givelify Deposit', 'Stripe Deposit', 'PayPal Deposit',
   'Transfer In', 'Other Income'
 ];
 const INCOME_CATEGORIES_BUSINESS = [
@@ -97,7 +98,7 @@ const INCOME_CATEGORIES_NONPROFIT = [
   'Tuition Income', 'Class Fees',
   'Major Gifts', 'Planned Giving / Bequest',
   'Online Donations',
-  'Tithely Deposit', 'Stripe Deposit', 'PayPal Deposit', 'Transfer In',
+  'Tithely Deposit', 'Givelify Deposit', 'Stripe Deposit', 'PayPal Deposit', 'Transfer In',
   'Other Income'
 ];
 
@@ -173,6 +174,7 @@ const guessIncomeCategory = (desc, orgType) => {
     if (/(grant)/i.test(d)) return 'Grants';
     // Auto-detect batch payouts from giving platforms (these are excluded from P&L to avoid double-counting)
     if (/(tithely|tithe\.ly|wave sv|wave sa|wave dep)/i.test(d)) return 'Tithely Deposit';
+    if (/(givelify|givelfy)/i.test(d)) return 'Givelify Deposit';
     if (/(stripe)/i.test(d)) return 'Stripe Deposit';
     if (/(paypal\b|paypal si|paypalsi|pp\*paypal)/i.test(d)) return 'PayPal Deposit';
     if (/(venmo|cash app|zelle.*receive)/i.test(d)) return 'Online Giving';
@@ -810,6 +812,10 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
                         (header.includes('transaction date') || header.includes('deposit date')) &&
                         (header.includes('first name') || header.includes('name') || header.includes('member id') || header.includes('transaction id'));
 
+      const isGivelify = (header.includes('envelope') || header.includes('campaign') || header.includes('external fund')) &&
+                         (header.includes('donor name') || header.includes('giver name') || header.includes('full name') || header.includes('donor email') || header.includes('giver email')) &&
+                         (header.includes('donation date') || header.includes('bank deposit date') || header.includes('disbursement date'));
+
       const findCol = (names) => {
         for (const n of names) {
           const idx = header.findIndex(h => h === n);
@@ -976,6 +982,143 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
             date, description: (desc || 'Tithely import').slice(0, 500), amount: amt, type: 'income',
             category: chosenCat, donor_id: matchedDonorId, donorName,
             _tithely: true,
+            _email: emailIdx >= 0 ? c[emailIdx] : '',
+            _phone: phoneIdx >= 0 ? c[phoneIdx] : '',
+            _address: fullAddr,
+            include: true,
+          };
+        }).filter(r => r !== null);
+      } else if (isGivelify) {
+        // ===== GIVELIFY PARSING =====
+        const amtIdx = findCol(['donation amount','amount','gross amount']);
+        const netIdx = findCol(['net amount','net donation']);
+        const feeIdx = findCol(['fee','fees','givelify fee']);
+        const donorNameIdx = findCol(['donor name','giver name','full name']);
+        const firstNameIdx = findCol(['first name']);
+        const lastNameIdx = findCol(['last name']);
+        const emailIdx = findCol(['donor email','giver email','email']);
+        const phoneIdx = findCol(['phone']);
+        const addrIdx = findCol(['address']);
+        const cityIdx = findCol(['city']);
+        const stateIdx = findCol(['state','province']);
+        const zipIdx = findCol(['zip','postal']);
+        const envIdx = findCol(['envelope','campaign','envelope name','campaign name']);
+        const memoIdx = findCol(['memo','message','note']);
+        const donationDateIdx = findCol(['donation date']);
+        const bankDateIdx = findCol(['bank deposit date','deposit date','disbursement date']);
+        const txIdIdx = findCol(['transaction id','donation id','giving id']);
+        const memberIdIdx = findCol(['external member id','member id']);
+
+        parsed = lines.slice(1).map((l, idx) => {
+          // Handle quoted CSV/TSV
+          let c;
+          if (DELIM === '\t') {
+            c = l.split('\t').map(x => x.replace(/"/g,'').trim());
+          } else {
+            c = [];
+            let cur = '', inQ = false;
+            for (let i = 0; i < l.length; i++) {
+              const ch = l[i];
+              if (ch === '"') { inQ = !inQ; continue; }
+              if (ch === ',' && !inQ) { c.push(cur.trim()); cur = ''; continue; }
+              cur += ch;
+            }
+            c.push(cur.trim());
+          }
+
+          // Date parsing — try donation date first, fallback to bank deposit date
+          let date = (donationDateIdx >= 0 ? c[donationDateIdx] : (bankDateIdx >= 0 ? c[bankDateIdx] : '')) || '';
+          date = date.trim();
+          let parsedDate = '';
+          if (date) {
+            if (date.includes('/')) {
+              const parts = date.split('/');
+              if (parts.length === 3) {
+                const mo = parts[0].padStart(2,'0');
+                const dy = parts[1].padStart(2,'0');
+                let yr = parts[2].trim(); if (yr.length === 2) yr = '20' + yr;
+                if (/^\d{4}$/.test(yr)) parsedDate = `${yr}-${mo}-${dy}`;
+              }
+            } else if (/^\d{4}-\d{2}-\d{2}/.test(date)) {
+              parsedDate = date.slice(0, 10);
+            } else {
+              const d = new Date(date);
+              if (!isNaN(d.getTime())) parsedDate = d.toISOString().slice(0, 10);
+            }
+          }
+          if (!parsedDate || !/^\d{4}-\d{2}-\d{2}$/.test(parsedDate)) {
+            parsedDate = new Date().toISOString().slice(0, 10);
+          }
+          date = parsedDate;
+
+          const amt = parseFloat((c[amtIdx]||'').replace(/[$,]/g,'')) || 0;
+          if (amt === 0) return null;
+
+          // Build donor name from First+Last or single Name column
+          let donorName = '';
+          if (firstNameIdx >= 0 || lastNameIdx >= 0) {
+            const first = firstNameIdx >= 0 ? (c[firstNameIdx] || '').trim() : '';
+            const last = lastNameIdx >= 0 ? (c[lastNameIdx] || '').trim() : '';
+            donorName = `${first} ${last}`.trim();
+          }
+          if (!donorName && donorNameIdx >= 0) donorName = c[donorNameIdx] || '';
+          if (!donorName) donorName = 'Anonymous';
+
+          const envelope = envIdx >= 0 ? c[envIdx] : '';
+          const memo = memoIdx >= 0 ? c[memoIdx] : '';
+
+          // Build address
+          let fullAddr = '';
+          if (addrIdx >= 0) fullAddr = c[addrIdx] || '';
+          const parts = [];
+          if (cityIdx >= 0 && c[cityIdx]) parts.push(c[cityIdx]);
+          if (stateIdx >= 0 && c[stateIdx]) parts.push(c[stateIdx]);
+          if (zipIdx >= 0 && c[zipIdx]) parts.push(c[zipIdx]);
+          if (parts.length > 0) fullAddr = fullAddr + (fullAddr ? ', ' : '') + parts.join(', ');
+
+          // Map Givelify Envelope/Campaign to our categories
+          const validCats = orgConfig.incomeCategories;
+          let chosenCat = validCats.find(vc => vc.toLowerCase() === (envelope||'').toLowerCase()) || '';
+          if (!chosenCat) {
+            const ev = (envelope || '').toLowerCase();
+            if (/tithe/i.test(ev)) chosenCat = 'Tithes';
+            else if (/general|offering/i.test(ev)) chosenCat = 'Offerings';
+            else if (/building|capital/i.test(ev)) chosenCat = 'Building Fund';
+            else if (/mission/i.test(ev)) chosenCat = 'Missions';
+            else if (/youth/i.test(ev)) chosenCat = 'Youth Ministry';
+            else if (/children|kids/i.test(ev)) chosenCat = "Children's Ministry";
+            else if (/benevolence/i.test(ev)) chosenCat = 'Benevolence Fund';
+            else if (/easter/i.test(ev)) chosenCat = 'Easter Offering';
+            else if (/christmas/i.test(ev)) chosenCat = 'Christmas Offering';
+            else if (/memorial/i.test(ev)) chosenCat = 'Memorial Gifts';
+            else if (/pledge/i.test(ev)) chosenCat = 'Pledges Received';
+            else chosenCat = 'Online Giving';
+            if (!validCats.includes(chosenCat)) chosenCat = validCats[0];
+          }
+
+          // Match donor by name
+          let matchedDonorId = '';
+          if (donorName && donorName !== 'Anonymous') {
+            const match = donors.find(d => d.name.toLowerCase() === donorName.toLowerCase());
+            if (match) matchedDonorId = match.id;
+          }
+
+          const desc = 'Givelify' + (envelope ? ' — ' + envelope : '') + (memo ? ' — ' + memo : '');
+
+          // Use Givelify Transaction ID as unique row ID to prevent duplicates
+          const givelifyId = txIdIdx >= 0 ? (c[txIdIdx] || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 30) : '';
+          const rowId = givelifyId ? 'gvfy_' + givelifyId : 'tx_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).slice(2,8);
+
+          return {
+            id: rowId,
+            date,
+            description: (desc || 'Givelify import').slice(0, 500),
+            amount: amt,
+            type: 'income',
+            category: chosenCat,
+            donor_id: matchedDonorId,
+            donorName,
+            _tithely: true,  // reuse the auto-donor-creation flow
             _email: emailIdx >= 0 ? c[emailIdx] : '',
             _phone: phoneIdx >= 0 ? c[phoneIdx] : '',
             _address: fullAddr,
@@ -1624,6 +1767,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
                       <option value="">📂 Change category...</option>
                       <optgroup label="Common">
                         <option value="Tithely Deposit">📋 Tithely Deposit (excluded)</option>
+                        <option value="Givelify Deposit">📋 Givelify Deposit (excluded)</option>
                         <option value="Stripe Deposit">📋 Stripe Deposit (excluded)</option>
                         <option value="PayPal Deposit">📋 PayPal Deposit (excluded)</option>
                         <option value="Transfer In">📋 Transfer In (excluded)</option>
