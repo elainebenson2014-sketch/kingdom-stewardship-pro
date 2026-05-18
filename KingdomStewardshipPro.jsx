@@ -1383,26 +1383,34 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
     // Extract donor name from Zelle/Cash App payment received
     const extractZelleDonor = (desc) => {
       if (!desc) return null;
-      let d = desc.trim();
 
-      // Zelle patterns:
-      // "Zelle payment from JOHN SMITH 12345"
-      // "ZELLE FROM JOHN SMITH"
-      // "Zelle Receive from John Smith"
-      let m = d.match(/zelle\s*(?:payment)?\s*(?:receive[d]?\s*)?from\s+([A-Z][A-Za-z\s.'-]+?)(?:\s+\d|\s+[A-Z]{2,}|\s*$)/i);
-      if (m) return m[1].trim().replace(/\s+/g, ' ').slice(0, 50);
+      // Token-based extraction: take all word tokens until we hit one with a digit
+      // (transaction IDs always have digits, real names don't)
+      const tokenize = (text) => {
+        const tokens = text.trim().split(/\s+/);
+        const nameTokens = [];
+        for (const tok of tokens) {
+          if (/\d/.test(tok)) break;  // Stop at first token with a digit
+          if (tok.length === 0) continue;
+          // Skip common ALL-CAPS metadata words
+          if (/^(ID|REF|TRN|EED|TRACE|SEC|CCD|PPD|WEB|ORIG)$/i.test(tok)) break;
+          nameTokens.push(tok);
+          if (nameTokens.length >= 5) break;  // Max 5 words
+        }
+        return nameTokens.length > 0 ? nameTokens.join(' ').slice(0, 60) : null;
+      };
 
-      // Cash App patterns:
-      // "CASH APP*ELAINE BENSON"
-      // "Cash App $johnsmith"
-      // "SQUARE INC CASH APP JOHN"
-      m = d.match(/cash\s*app\s*\*?\s*([A-Z][A-Za-z\s.'-]+?)(?:\s+\d|\s+ID|\s*$)/i);
-      if (m) return m[1].trim().replace(/\s+/g, ' ').slice(0, 50);
+      // Zelle
+      let m = desc.match(/zelle\s*(?:payment)?\s*(?:receive[d]?\s*)?from\s+(.+)/i);
+      if (m) return tokenize(m[1]);
 
-      // Venmo patterns:
-      // "VENMO PAYMENT JOHN SMITH"
-      m = d.match(/venmo\s*(?:payment)?\s*([A-Z][A-Za-z\s.'-]+?)(?:\s+\d|\s+ID|\s*$)/i);
-      if (m) return m[1].trim().replace(/\s+/g, ' ').slice(0, 50);
+      // Cash App
+      m = desc.match(/cash\s*app\s*\*?\s*(.+)/i);
+      if (m) return tokenize(m[1]);
+
+      // Venmo
+      m = desc.match(/venmo\s*(?:payment)?\s*(.+)/i);
+      if (m) return tokenize(m[1]);
 
       return null;
     };
