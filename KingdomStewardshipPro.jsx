@@ -652,7 +652,7 @@ function Dashboard({ user, onLogout }) {
       <aside style={{ width:240, background: NAVY, color:'#fff', padding:'1.5rem 1rem', flexShrink:0 }}>
         <div style={{ marginBottom:'2rem' }}>
           <div style={{ fontSize:'0.8rem', color: GOLD, fontWeight:700, letterSpacing:'0.05em' }}>👑 KS PRO</div>
-          <div style={{ fontSize:'1rem', fontWeight:600, marginTop:4 }}>{orgName}</div>
+          <div style={{ fontSize:'1rem', fontWeight:600, marginTop:4, color: '#ffffff' }}>{orgName}</div>
           <div style={{ fontSize:'0.75rem', color:'#A8B5C8', marginTop:2 }}>{orgConfig.label}</div>
         </div>
 
@@ -692,7 +692,7 @@ function Dashboard({ user, onLogout }) {
         {tab === 'vendors' && <VendorsTab user={user} vendors={vendors} setVendors={setVendors} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
         {tab === 'recurring' && <RecurringTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} vendors={vendors} funds={funds} orgConfig={orgConfig} />}
         {tab === 'funds' && orgConfig.hasFunds && <FundsTab user={user} funds={funds} setFunds={setFunds} transactions={transactions} />}
-        {tab === 'reports' && <ReportsTab transactions={transactions} donors={donors} vendors={vendors} orgConfig={orgConfig} />}
+        {tab === 'reports' && <ReportsTab transactions={transactions} donors={donors} vendors={vendors} orgConfig={orgConfig} orgName={orgName} />}
         {tab === 'statements' && <StatementsTab user={user} donors={donors} transactions={transactions} orgConfig={orgConfig} orgName={orgName} />}
         {tab === 'settings' && <SettingsTab user={user} orgName={orgName} setOrgName={setOrgName} orgType={orgType} setOrgType={setOrgType} customIncomeCats={customIncomeCats} setCustomIncomeCats={setCustomIncomeCats} customExpenseCats={customExpenseCats} setCustomExpenseCats={setCustomExpenseCats} />}
       </main>
@@ -2943,7 +2943,7 @@ function FundsTab({ user, funds, setFunds, transactions }) {
 }
 
 // ============ REPORTS TAB ============
-function ReportsTab({ transactions, donors, orgConfig }) {
+function ReportsTab({ transactions, donors, orgConfig, orgName }) {
   const [year, setYear] = useState(new Date().getFullYear());
   const [customMode, setCustomMode] = useState(false);
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10));
@@ -3027,7 +3027,62 @@ function ReportsTab({ transactions, donors, orgConfig }) {
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:8 }}>
         <h2 style={{ fontSize:'1.6rem' }}>📄 Reports</h2>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-          <button className="btn btn-outline" onClick={exportReport}>📤 Export Report</button>
+          <button className="btn btn-outline" onClick={exportReport}>📤 Export CSV</button>
+          <button className="btn btn-outline" onClick={() => {
+            // Generate a clean PDF-ready HTML document and open print dialog
+            const period = customMode ? `${startDate} to ${endDate}` : `For year ending December 31, ${year}`;
+            const incomeRows = Object.entries(incomeByCategory).sort((a,b)=>b[1]-a[1]).map(([cat, amt]) =>
+              `<tr><td style="padding:6px 0;color:#1e3a5f">${cat}</td><td style="padding:6px 0;text-align:right;font-weight:600">${fmt(amt)}</td></tr>`
+            ).join('');
+            const expenseRows = Object.entries(expensesByCategory).sort((a,b)=>b[1]-a[1]).map(([cat, amt]) =>
+              `<tr><td style="padding:6px 0;color:#1e3a5f">${cat}</td><td style="padding:6px 0;text-align:right;font-weight:600">${fmt(amt)}</td></tr>`
+            ).join('');
+            const excludedRows = Object.entries(excludedByCategory).sort((a,b)=>b[1]-a[1]).map(([cat, amt]) =>
+              `<tr><td style="padding:6px 0;color:#6a7280">${cat}</td><td style="padding:6px 0;text-align:right;color:#6a7280;text-decoration:line-through">${fmt(amt)}</td></tr>`
+            ).join('');
+            const html = `
+<!DOCTYPE html><html><head><title>P&L Report — ${period}</title>
+<style>
+  body { font-family: Georgia, serif; padding: 40px; color: #1e3a5f; max-width: 800px; margin: 0 auto; }
+  .header { background: #1e3a5f; color: #fff; padding: 20px; border-radius: 8px; margin-bottom: 24px; text-align: center; }
+  .header h1 { margin: 0; color: #fff; font-size: 22px; }
+  .header p { margin: 6px 0 0 0; color: #A8B5C8; font-size: 13px; }
+  h2 { color: #2d5a3f; font-size: 16px; margin-top: 24px; padding-bottom: 6px; border-bottom: 2px solid #e3ebd7; }
+  h2.exp { color: #b53232; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 6px 0; font-size: 14px; }
+  .total { border-top: 2px solid #1e3a5f; padding-top: 8px !important; font-weight: 700 !important; font-size: 15px !important; }
+  .net { background: #e3ebd7; padding: 14px 18px; border-radius: 8px; display: flex; justify-content: space-between; margin: 20px 0; font-weight: 700; font-size: 18px; }
+  .footer { text-align: center; margin-top: 32px; padding-top: 20px; border-top: 1px solid #ddd; color: #6a7280; font-size: 11px; }
+  @media print { body { padding: 20px; } }
+</style></head><body>
+<div class="header">
+  <h1>${orgName || 'Profit & Loss Statement'}</h1>
+  <p>${period}</p>
+</div>
+<h2>${orgConfig.termsFor.income.toUpperCase()}</h2>
+<table>${incomeRows}<tr><td colspan="2" class="total" style="padding-top:10px"><div style="display:flex;justify-content:space-between"><span>Total ${orgConfig.termsFor.income}</span><span style="color:#2d5a3f">${fmt(totalIncome)}</span></div></td></tr></table>
+<h2 class="exp">${orgConfig.termsFor.expense.toUpperCase()}</h2>
+<table>${expenseRows}<tr><td colspan="2" class="total" style="padding-top:10px"><div style="display:flex;justify-content:space-between"><span>Total ${orgConfig.termsFor.expense}</span><span style="color:#b53232">${fmt(totalExpenses)}</span></div></td></tr></table>
+<div class="net"><span>${orgConfig.termsFor.net}</span><span style="color:${net >= 0 ? '#2d5a3f' : '#b53232'}">${fmt(net)}</span></div>
+${Object.keys(excludedByCategory).length > 0 ? `
+<h2 style="color:#6a7280">📋 NOT INCLUDED IN P&L (Bookkeeping Only)</h2>
+<p style="font-size:12px;color:#6a7280;font-style:italic">These are bank deposits or transfers already counted via individual entries.</p>
+<table>${excludedRows}</table>
+` : ''}
+<div class="footer">Generated by Kingdom Stewardship Pro · ${new Date().toLocaleDateString()}</div>
+<script>window.onload = () => { window.print(); }</script>
+</body></html>`;
+            const blob = new Blob([html], { type:'text/html' });
+            const url = URL.createObjectURL(blob);
+            const w = window.open(url, '_blank');
+            if (!w) {
+              alert('Please allow popups to download PDF. Or use the 🖨️ Print button instead.');
+              return;
+            }
+            // Cleanup after print
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+          }}>📄 Download PDF</button>
           <button className="btn btn-outline" onClick={()=>window.print()}>🖨️ Print</button>
         </div>
       </div>
@@ -3405,10 +3460,61 @@ function StatementsTab({ user, donors, transactions, orgConfig, orgName }) {
           <p style={{ fontSize:'0.8rem', color: TXT_LIGHT, lineHeight:1.6, marginTop:'1.5rem' }}>
             <strong>Important:</strong> No goods or services were provided in exchange for these contributions, except as noted. Please retain this statement for your tax records. {orgName} is a registered {orgConfig.id === 'church' ? '501(c)(3) religious organization' : '501(c)(3) nonprofit'}.
           </p>
-          <div className="no-print" style={{ display:'flex', gap:8, marginTop:'1.5rem' }}>
-            <button className="btn btn-navy" style={{ flex:1 }} onClick={()=>window.print()}>🖨️ Print This Statement</button>
+          <div className="no-print" style={{ display:'flex', gap:8, marginTop:'1.5rem', flexWrap:'wrap' }}>
+            <button className="btn btn-navy" style={{ flex:1, minWidth:140 }} onClick={()=>window.print()}>🖨️ Print</button>
+            <button className="btn btn-outline" style={{ flex:1, minWidth:140 }} onClick={() => {
+              // Generate clean PDF
+              const stmt = generateStatement(selectedDonor);
+              const total = stmt.reduce((s,t)=>s+parseFloat(t.amount||0), 0);
+              const rows = stmt.sort((a,b) => a.date.localeCompare(b.date)).map(t =>
+                `<tr><td style="padding:6px 8px;color:#6a7280;font-size:13px">${t.date}</td><td style="padding:6px 8px;color:#1e3a5f">${t.category||'Gift'}</td><td style="padding:6px 8px;text-align:right;font-weight:600;color:#2d5a3f">${fmt(parseFloat(t.amount||0))}</td></tr>`
+              ).join('');
+              const html = `
+<!DOCTYPE html><html><head><title>Giving Statement — ${selectedDonor.name} — ${year}</title>
+<style>
+  body { font-family: Georgia, serif; padding: 40px; color: #1e3a5f; max-width: 700px; margin: 0 auto; }
+  .header { text-align: center; border-bottom: 3px solid #c9a84c; padding-bottom: 16px; margin-bottom: 24px; }
+  .header h1 { margin: 0; color: #1e3a5f; font-size: 24px; }
+  .header p { margin: 4px 0 0 0; color: #6a7280; font-size: 13px; }
+  .info { margin: 20px 0; font-size: 14px; }
+  .info p { margin: 4px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th { padding: 10px 8px; text-align: left; background: #e3ebd7; color: #1e3a5f; font-size: 12px; text-transform: uppercase; }
+  td { border-bottom: 1px solid #f4f6fa; }
+  .total { background: #fdf7e8; padding: 14px 18px; border-radius: 8px; display: flex; justify-content: space-between; margin-top: 16px; font-weight: 700; font-size: 18px; color: #1e3a5f; }
+  .legal { margin-top: 24px; padding: 16px; background: #f8f8f0; border-left: 4px solid #c9a84c; font-size: 12px; color: #1e3a5f; line-height: 1.6; }
+  .footer { text-align: center; margin-top: 32px; color: #6a7280; font-size: 11px; }
+  @media print { body { padding: 20px; } }
+</style></head><body>
+<div class="header">
+  <h1>${orgName}</h1>
+  <p>Year-End Giving Statement · ${year}</p>
+</div>
+<div class="info">
+  <p><strong>To:</strong> ${selectedDonor.name}</p>
+  ${selectedDonor.address ? `<p style="color:#6a7280">${selectedDonor.address}</p>` : ''}
+  ${selectedDonor.email ? `<p style="color:#6a7280">${selectedDonor.email}</p>` : ''}
+</div>
+<p style="font-size:14px;line-height:1.6">Thank you for your generous support of ${orgName} during ${year}. Below is a record of your contributions for tax purposes.</p>
+<table>
+  <thead><tr><th>Date</th><th>Category</th><th style="text-align:right">Amount</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<div class="total"><span>Total ${year} Contributions</span><span style="color:#2d5a3f">${fmt(total)}</span></div>
+<div class="legal">
+  <strong>Important Tax Information:</strong> No goods or services were provided in exchange for these contributions, except as noted. Please retain this statement for your tax records. ${orgName} is a registered ${orgConfig.id === 'church' ? '501(c)(3) religious organization' : '501(c)(3) nonprofit'}.
+</div>
+<div class="footer">Generated ${new Date().toLocaleDateString()} · ${stmt.length} gift${stmt.length !== 1 ? 's' : ''}</div>
+<script>window.onload = () => { window.print(); }</script>
+</body></html>`;
+              const blob = new Blob([html], { type:'text/html' });
+              const url = URL.createObjectURL(blob);
+              const w = window.open(url, '_blank');
+              if (!w) { alert('Please allow popups to download PDF.'); return; }
+              setTimeout(() => URL.revokeObjectURL(url), 60000);
+            }}>📄 Download PDF</button>
             {selectedDonor.email && (
-              <button className="btn btn-outline" style={{ flex:1 }} onClick={() => {
+              <button className="btn btn-outline" style={{ flex:1, minWidth:140 }} onClick={() => {
                 const stmt = generateStatement(selectedDonor);
                 const total = stmt.reduce((s,t)=>s+parseFloat(t.amount||0), 0);
                 const subject = `Your ${year} Giving Statement from ${orgName}`;
@@ -3475,7 +3581,8 @@ function SettingsTab({ user, orgName, setOrgName, orgType, setOrgType, customInc
     setOrgName(name); setOrgType(type);
     try {
       const sb = await getSupabase();
-      await sb.from('organizations').upsert({ user_id: user.id, name, org_type: type });
+      const { error } = await sb.from('organizations').upsert({ user_id: user.id, name, org_type: type }, { onConflict: 'user_id' });
+      if (error) alert('Save error: ' + error.message);
     } catch(e) { console.log('Save settings:', e); }
     setSaving(false);
   };
