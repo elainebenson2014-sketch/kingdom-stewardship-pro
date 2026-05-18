@@ -328,6 +328,31 @@ function GlobalStyles() {
       input, select, textarea { font-family:inherit; font-size:0.9rem; padding:8px 12px; border-radius:8px; border:1px solid ${BORDER}; background:#fff; color:${NAVY}; outline:none; }
       input:focus, select:focus, textarea:focus { border-color:${GOLD}; }
       h1,h2,h3,h4 { font-family:Georgia,Lora,serif; color:${NAVY}; }
+
+      /* ===== PRINT STYLES ===== */
+      @media print {
+        body { background: #fff !important; }
+        /* Hide navigation, sidebars, buttons */
+        aside, .no-print, button, nav { display: none !important; }
+        /* Hide everything except print-area */
+        body * { visibility: hidden; }
+        .print-area, .print-area * { visibility: visible; }
+        .print-area {
+          position: absolute;
+          left: 0; top: 0; width: 100%;
+          padding: 20px !important;
+          margin: 0 !important;
+          background: #fff !important;
+        }
+        /* Adjust statement/report look */
+        .print-area .card { border: none !important; box-shadow: none !important; }
+        .print-area h2, .print-area h3, .print-area h4 { color: #000 !important; page-break-after: avoid; }
+        .print-area table { page-break-inside: avoid; }
+        /* Hide remaining UI elements */
+        main { padding: 0 !important; }
+        /* Force colors to print */
+        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      }
     `}</style>
   );
 }
@@ -3036,7 +3061,7 @@ function ReportsTab({ transactions, donors, orgConfig }) {
       </div>
 
       {/* P&L Statement */}
-      <div className="card" style={{ marginBottom:'1.5rem' }}>
+      <div className="card print-area" style={{ marginBottom:'1.5rem' }}>
         <div style={{ background: NAVY, color:'#fff', padding:'1rem 1.5rem', borderRadius:'12px 12px 0 0' }}>
           <h3 style={{ color:'#fff', fontSize:'1.2rem' }}>Profit & Loss Statement</h3>
           <p style={{ fontSize:'0.85rem', color:'#A8B5C8', marginTop:4 }}>{customMode ? `${startDate} to ${endDate}` : `For year ending December 31, ${year}`}</p>
@@ -3096,7 +3121,7 @@ function ReportsTab({ transactions, donors, orgConfig }) {
             </div>
           )}
 
-          <button className="btn btn-outline" style={{ marginTop:'1rem', width:'100%' }} onClick={()=>window.print()}>🖨️ Print / Export PDF</button>
+          <button className="btn btn-outline no-print" style={{ marginTop:'1rem', width:'100%' }} onClick={()=>window.print()}>🖨️ Print / Export PDF</button>
         </div>
       </div>
 
@@ -3342,8 +3367,8 @@ function StatementsTab({ user, donors, transactions, orgConfig, orgName }) {
       )}
 
       {selectedDonor ? (
-        <div className="card card-p" style={{ marginBottom:'1rem' }}>
-          <button onClick={()=>setSelectedDonor(null)} className="btn btn-outline" style={{ marginBottom:'1rem' }}>← Back to list</button>
+        <div className="card card-p print-area" style={{ marginBottom:'1rem' }}>
+          <button onClick={()=>setSelectedDonor(null)} className="btn btn-outline no-print" style={{ marginBottom:'1rem' }}>← Back to list</button>
           <div style={{ textAlign:'center', borderBottom:`2px solid ${GOLD}`, paddingBottom:'1rem', marginBottom:'1.5rem' }}>
             <h3 style={{ fontSize:'1.5rem', marginBottom:4 }}>{orgName}</h3>
             <p style={{ color: TXT_LIGHT, fontSize:'0.9rem' }}>Year-End Giving Statement · {year}</p>
@@ -3380,7 +3405,7 @@ function StatementsTab({ user, donors, transactions, orgConfig, orgName }) {
           <p style={{ fontSize:'0.8rem', color: TXT_LIGHT, lineHeight:1.6, marginTop:'1.5rem' }}>
             <strong>Important:</strong> No goods or services were provided in exchange for these contributions, except as noted. Please retain this statement for your tax records. {orgName} is a registered {orgConfig.id === 'church' ? '501(c)(3) religious organization' : '501(c)(3) nonprofit'}.
           </p>
-          <div style={{ display:'flex', gap:8, marginTop:'1.5rem' }}>
+          <div className="no-print" style={{ display:'flex', gap:8, marginTop:'1.5rem' }}>
             <button className="btn btn-navy" style={{ flex:1 }} onClick={()=>window.print()}>🖨️ Print This Statement</button>
             {selectedDonor.email && (
               <button className="btn btn-outline" style={{ flex:1 }} onClick={() => {
