@@ -1928,9 +1928,13 @@ function Dashboard({ plan, user, dashTab, setDashTab, checked, setChecked, check
     { id: "overview", icon: "🏠", label: "Overview" },
     { id: "networth", icon: "💎", label: "Net Worth" },
     { id: "budget", icon: "📊", label: "My Budget" },
+    { id: "bills", icon: "📅", label: "Bill Calendar" },
+    { id: "subscriptions", icon: "🔄", label: "Subscriptions" },
     { id: "debt", icon: "💳", label: "Debt Payoff" },
     { id: "savings", icon: "💰", label: "Savings Goals" },
     { id: "investments", icon: "📈", label: "Investments" },
+    { id: "taxes", icon: "🧾", label: "Tax Tracker" },
+    { id: "trends", icon: "📉", label: "Trends" },
     { id: "credit", icon: "⭐", label: "Credit Score" },
     { id: "actions", icon: "✅", label: "Weekly Actions" },
     { id: "devotional", icon: "📖", label: "Devotionals" },
@@ -2047,24 +2051,231 @@ function Dashboard({ plan, user, dashTab, setDashTab, checked, setChecked, check
           </>
         )}
 
-        {dashTab === "budget" && (
-          <div className="card card-p">
-            <div className="card-hdr"><div><div className="card-title">Your Personalized Kingdom Budget</div><div className="card-subtitle">Generated from your monthly income of ${plan.income.toLocaleString()}</div></div></div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.5rem" }}>
-              {plan.budget.map(b => (
-                <div key={b.cat} style={{ padding: "1.2rem", background: "#FAFAF6", borderRadius: 10, borderLeft: `4px solid ${b.color}` }}>
-                  <div style={{ fontSize: "0.75rem", color: "#7A8BA8", marginBottom: "0.25rem" }}>{b.pct}% of income</div>
-                  <div style={{ fontFamily: "var(--serif)", fontSize: "1.4rem", fontWeight: 700, color: "#0D1F3C" }}>${b.amount.toLocaleString()}</div>
-                  <div style={{ fontSize: "0.85rem", color: "#3E506B" }}>{b.cat}</div>
+        {dashTab === "budget" && (() => {
+          // Load user's custom budget % from localStorage
+          const userKey = user?.email ? user.email.toLowerCase().replace(/[^a-z0-9]/g,'_') : 'guest';
+          const budgetStorageKey = `kwb_${userKey}_budget_pcts`;
+          const [editing, setEditing] = useState(false);
+          const [customPcts, setCustomPcts] = useState(() => {
+            try {
+              const saved = JSON.parse(localStorage.getItem(budgetStorageKey) || 'null');
+              if (saved) return saved;
+            } catch {}
+            // Default to plan's current percentages
+            return plan.budget.map(b => ({ cat: b.cat, color: b.color, pct: b.pct }));
+          });
+          useEffect(() => { try { localStorage.setItem(budgetStorageKey, JSON.stringify(customPcts)); } catch {} }, [customPcts]);
+
+          const totalPct = customPcts.reduce((s,b) => s + Number(b.pct||0), 0);
+          const isValid = Math.abs(totalPct - 100) < 0.01;
+
+          const budgetToShow = customPcts.map(b => ({ ...b, amount: Math.round(plan.income * b.pct / 100) }));
+
+          return (
+            <div className="card card-p">
+              <div className="card-hdr" style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:8 }}>
+                <div>
+                  <div className="card-title">Your Personalized Kingdom Budget</div>
+                  <div className="card-subtitle">Generated from your monthly income of ${plan.income.toLocaleString()}</div>
                 </div>
-              ))}
+                <button onClick={()=>setEditing(!editing)} style={{ background: editing?'#1e3a5f':'transparent', color: editing?'#fff':'#1e3a5f', border:'1px solid #1e3a5f', padding:'8px 16px', borderRadius:6, fontWeight:600, cursor:'pointer' }}>
+                  {editing ? '✓ Done Editing' : '✏️ Edit Percentages'}
+                </button>
+              </div>
+
+              {editing && (
+                <div style={{ background:'#FDF7E8', border:'1px solid #E5D08A', borderRadius:10, padding:'1.25rem', marginBottom:'1.5rem' }}>
+                  <p style={{ fontSize:'0.85rem', color:'#7A5C10', marginBottom:'1rem' }}>
+                    <strong>💡 Customize Your Budget:</strong> Adjust percentages to fit YOUR life. Total must equal 100%.
+                  </p>
+                  {customPcts.map((b, i) => (
+                    <div key={b.cat} style={{ display:'flex', alignItems:'center', gap:12, marginBottom:8, padding:'8px 12px', background:'#fff', borderRadius:6, borderLeft:`4px solid ${b.color}` }}>
+                      <span style={{ flex:1, fontWeight:600, color:'#0D1F3C', fontSize:'0.9rem' }}>{b.cat}</span>
+                      <input type="number" step="0.5" min="0" max="100" value={b.pct} onChange={e => setCustomPcts(p => p.map((x,j) => j===i ? {...x, pct: parseFloat(e.target.value)||0} : x))} style={{ width:80, padding:'4px 8px', textAlign:'right', border:'1px solid #ddd', borderRadius:4 }} />
+                      <span style={{ color:'#7A8BA8' }}>%</span>
+                      <span style={{ width:90, textAlign:'right', color:'#2d5a3f', fontWeight:600 }}>${Math.round(plan.income * b.pct / 100).toLocaleString()}</span>
+                      <button onClick={()=>{ if(confirm('Remove this category?')) setCustomPcts(p => p.filter((_,j) => j !== i)); }} style={{ background:'none', border:'none', color:'#7A8BA8', cursor:'pointer', fontSize:14 }}>✕</button>
+                    </div>
+                  ))}
+
+                  <button onClick={()=>{
+                    const cat = prompt('New category name (e.g., Childcare, Pet Care, Hobbies):');
+                    if (!cat) return;
+                    const colors = ['#0D1F3C','#1B4D3C','#C9A84C','#B53232','#246B52','#7A8BA8','#8B5A2B','#5D4E60'];
+                    setCustomPcts(p => [...p, { cat, color: colors[p.length % colors.length], pct: 0 }]);
+                  }} style={{ background:'transparent', border:'1px dashed #C9A84C', color:'#7A5C10', padding:'6px 14px', borderRadius:6, fontSize:'0.85rem', cursor:'pointer', marginTop:6 }}>+ Add Category</button>
+
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:'1rem', padding:'12px', background: isValid ? '#e8f5e9' : '#ffebee', borderRadius:6 }}>
+                    <strong style={{ color: isValid ? '#1b5e20' : '#c62828' }}>
+                      Total: {totalPct.toFixed(1)}%
+                    </strong>
+                    <span style={{ color: isValid ? '#1b5e20' : '#c62828', fontSize:'0.85rem' }}>
+                      {isValid ? '✓ Perfect — your budget is balanced!' : `${totalPct > 100 ? 'Over' : 'Under'} by ${Math.abs(100 - totalPct).toFixed(1)}%`}
+                    </span>
+                  </div>
+
+                  <div style={{ display:'flex', gap:8, marginTop:'0.75rem' }}>
+                    <button onClick={()=>{
+                      // Reset to Kingdom 10-10-80 framework
+                      setCustomPcts([
+                        { cat:'Giving (Tithe)', color:'#C9A84C', pct: 10 },
+                        { cat:'Savings & Emergency', color:'#246B52', pct: 10 },
+                        { cat:'Housing & Utilities', color:'#0D1F3C', pct: 30 },
+                        { cat:'Food & Groceries', color:'#1B4D3C', pct: 12 },
+                        { cat:'Transportation', color:'#7A8BA8', pct: 10 },
+                        { cat:'Debt Payments', color:'#B53232', pct: 15 },
+                        { cat:'Personal & Other', color:'#8B5A2B', pct: 13 },
+                      ]);
+                    }} style={{ background:'transparent', border:'1px solid #C9A84C', color:'#7A5C10', padding:'6px 12px', borderRadius:6, fontSize:'0.8rem', cursor:'pointer' }}>👑 Reset to 10-10-80 Kingdom Default</button>
+
+                    <button onClick={()=>{
+                      // Adjust remaining percentage equally across categories
+                      const diff = 100 - totalPct;
+                      const perCat = diff / customPcts.length;
+                      setCustomPcts(p => p.map(b => ({ ...b, pct: Math.max(0, Number((b.pct + perCat).toFixed(1))) })));
+                    }} style={{ background:'transparent', border:'1px solid #246B52', color:'#246B52', padding:'6px 12px', borderRadius:6, fontSize:'0.8rem', cursor:'pointer' }}>⚖️ Auto-Balance to 100%</button>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.5rem" }}>
+                {budgetToShow.map(b => (
+                  <div key={b.cat} style={{ padding: "1.2rem", background: "#FAFAF6", borderRadius: 10, borderLeft: `4px solid ${b.color}` }}>
+                    <div style={{ fontSize: "0.75rem", color: "#7A8BA8", marginBottom: "0.25rem" }}>{b.pct}% of income</div>
+                    <div style={{ fontFamily: "var(--serif)", fontSize: "1.4rem", fontWeight: 700, color: "#0D1F3C" }}>${b.amount.toLocaleString()}</div>
+                    <div style={{ fontSize: "0.85rem", color: "#3E506B" }}>{b.cat}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* BUDGET VS ACTUAL */}
+              {(() => {
+                // Load actual transactions from Budget Tracker
+                let actualByCategory = {};
+                try {
+                  const txExpenses = JSON.parse(localStorage.getItem(`kwb_${userKey}_expenses`) || '[]');
+                  const now = new Date();
+                  const curMonth = now.getMonth();
+                  const curYear = now.getFullYear();
+                  // Sum expenses for current month
+                  txExpenses.forEach(tx => {
+                    const d = new Date(tx.date);
+                    if (d.getMonth() === curMonth && d.getFullYear() === curYear) {
+                      const cat = tx.category || 'Other';
+                      const amt = parseFloat(tx.amount) || 0;
+                      actualByCategory[cat] = (actualByCategory[cat] || 0) + Math.abs(amt);
+                    }
+                  });
+                } catch {}
+
+                const hasActual = Object.keys(actualByCategory).length > 0;
+                if (!hasActual) {
+                  return (
+                    <div style={{ padding:'1rem', background:'#F0F8FF', border:'1px solid #B0CCE5', borderRadius:10, marginBottom:'1.5rem', textAlign:'center', fontSize:'0.88rem', color:'#1e3a5f' }}>
+                      💡 <strong>Want to see Budget vs Actual?</strong> Import bank transactions in <strong>📒 Budget Tracker</strong> tab — this section will auto-populate with your actual spending!
+                    </div>
+                  );
+                }
+
+                // Map budget categories to actual category names
+                const catKeywords = {
+                  'Housing & Utilities': ['Rent', 'Mortgage', 'Utilities', 'Electric', 'Gas', 'Water', 'Internet', 'Cable', 'HOA', 'Home Repair', 'Phone', 'Cell Phone'],
+                  'Food & Groceries': ['Groceries', 'Food', 'Restaurant', 'Dining', 'Coffee', 'Snacks'],
+                  'Transportation': ['Gas', 'Fuel', 'Auto', 'Car', 'Uber', 'Lyft', 'Public Transit', 'Parking', 'Vehicle', 'Auto Insurance'],
+                  'Healthcare': ['Medical', 'Healthcare', 'Doctor', 'Pharmacy', 'Insurance Health', 'Dental', 'Vision'],
+                  'Personal & Entertainment': ['Entertainment', 'Movies', 'Subscriptions', 'Streaming', 'Hobbies', 'Personal Care', 'Clothing'],
+                  'Personal & Other': ['Entertainment', 'Personal Care', 'Clothing', 'Other', 'Misc'],
+                  'Debt Payments': ['Debt', 'Loan', 'Credit Card', 'Credit Card Payment', 'Student Loan'],
+                  'Savings & Giving': ['Savings', 'Investment', 'Retirement', 'Tithe', 'Giving', 'Charity', 'Donation'],
+                  'Giving (Tithe)': ['Tithe', 'Giving', 'Charity', 'Donation', 'Church'],
+                  'Savings & Emergency': ['Savings', 'Emergency Fund', 'Investment'],
+                  'Other Expenses': ['Other', 'Misc', 'Uncategorized'],
+                };
+
+                const compareData = budgetToShow.map(b => {
+                  const keywords = catKeywords[b.cat] || [b.cat];
+                  let actual = 0;
+                  Object.entries(actualByCategory).forEach(([cat, amt]) => {
+                    if (keywords.some(k => cat.toLowerCase().includes(k.toLowerCase()))) {
+                      actual += amt;
+                    }
+                  });
+                  const variance = b.amount - actual;
+                  const pctUsed = b.amount > 0 ? (actual / b.amount * 100) : 0;
+                  return { ...b, actual, variance, pctUsed };
+                });
+
+                const totalBudget = compareData.reduce((s,c) => s + c.amount, 0);
+                const totalActual = compareData.reduce((s,c) => s + c.actual, 0);
+                const totalVariance = totalBudget - totalActual;
+                const now = new Date();
+                const monthName = now.toLocaleString('default', { month: 'long' });
+
+                return (
+                  <div style={{ marginBottom:'1.5rem' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem' }}>
+                      <h3 style={{ fontSize:'1.1rem', color:'#0D1F3C' }}>📊 Budget vs Actual — {monthName} {now.getFullYear()}</h3>
+                      <div style={{ fontSize:'0.85rem', color:'#7A8BA8' }}>From your Budget Tracker imports</div>
+                    </div>
+
+                    {/* Summary */}
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8, marginBottom:'1rem' }}>
+                      <div style={{ padding:'10px', background:'#F0F4FA', borderRadius:8, textAlign:'center' }}>
+                        <div style={{ fontSize:'0.72rem', color:'#7A8BA8', textTransform:'uppercase' }}>Budgeted</div>
+                        <div style={{ fontWeight:700, color:'#0D1F3C', fontSize:'1.1rem' }}>${totalBudget.toLocaleString()}</div>
+                      </div>
+                      <div style={{ padding:'10px', background:'#FFF8E1', borderRadius:8, textAlign:'center' }}>
+                        <div style={{ fontSize:'0.72rem', color:'#8B6914', textTransform:'uppercase' }}>Actual Spent</div>
+                        <div style={{ fontWeight:700, color:'#8B6914', fontSize:'1.1rem' }}>${totalActual.toLocaleString()}</div>
+                      </div>
+                      <div style={{ padding:'10px', background: totalVariance >= 0 ? '#E8F5E9' : '#FFEBEE', borderRadius:8, textAlign:'center' }}>
+                        <div style={{ fontSize:'0.72rem', color: totalVariance >= 0 ? '#1b5e20' : '#c62828', textTransform:'uppercase' }}>{totalVariance >= 0 ? 'Under Budget' : 'Over Budget'}</div>
+                        <div style={{ fontWeight:700, color: totalVariance >= 0 ? '#1b5e20' : '#c62828', fontSize:'1.1rem' }}>${Math.abs(totalVariance).toLocaleString()}</div>
+                      </div>
+                    </div>
+
+                    {/* Per-category progress bars */}
+                    <div style={{ background:'#fff', border:'1px solid #e8e8e0', borderRadius:10, padding:'1rem' }}>
+                      {compareData.map(c => {
+                        const overspent = c.actual > c.amount;
+                        const barColor = c.pctUsed > 100 ? '#B53232' : c.pctUsed > 80 ? '#C9A84C' : '#246B52';
+                        return (
+                          <div key={c.cat} style={{ marginBottom:'0.85rem', paddingBottom:'0.85rem', borderBottom:'1px solid #F4F6FA' }}>
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                                <div style={{ width:4, height:16, background: c.color, borderRadius:2 }}></div>
+                                <span style={{ fontWeight:600, color:'#0D1F3C', fontSize:'0.9rem' }}>{c.cat}</span>
+                              </div>
+                              <div style={{ fontSize:'0.85rem' }}>
+                                <span style={{ color: overspent ? '#B53232' : '#246B52', fontWeight:700 }}>${c.actual.toLocaleString()}</span>
+                                <span style={{ color:'#7A8BA8' }}> / ${c.amount.toLocaleString()}</span>
+                              </div>
+                            </div>
+                            <div style={{ background:'#F4F6FA', borderRadius:10, height:8, overflow:'hidden', position:'relative' }}>
+                              <div style={{ height:'100%', width: Math.min(c.pctUsed, 100) + '%', background: barColor, transition:'width 0.3s' }}></div>
+                              {c.pctUsed > 100 && <div style={{ position:'absolute', right:0, top:0, height:'100%', background:'#B53232', width:'4px' }}></div>}
+                            </div>
+                            <div style={{ display:'flex', justifyContent:'space-between', marginTop:4, fontSize:'0.72rem' }}>
+                              <span style={{ color: c.pctUsed > 100 ? '#B53232' : '#7A8BA8' }}>{c.pctUsed.toFixed(0)}% used</span>
+                              <span style={{ color: c.variance >= 0 ? '#246B52' : '#B53232', fontWeight:600 }}>
+                                {c.variance >= 0 ? `${'$' + c.variance.toLocaleString()} remaining` : `${'$' + Math.abs(c.variance).toLocaleString()} over`}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div style={{ padding: "1.25rem", background: "#FDF7E8", border: "1px solid #E5D08A", borderRadius: 10 }}>
+                <strong style={{ fontSize: "0.85rem", color: "#7A5C10" }}>👑 The 10-10-80 Kingdom Principle:</strong>
+                <p style={{ fontSize: "0.85rem", color: "#8B6914", marginTop: "0.35rem", lineHeight: 1.75 }}>Give 10%, Save 10%, Live on 80%. Start wherever you are — even 5-5-90 is powerful.</p>
+              </div>
             </div>
-            <div style={{ padding: "1.25rem", background: "#FDF7E8", border: "1px solid #E5D08A", borderRadius: 10 }}>
-              <strong style={{ fontSize: "0.85rem", color: "#7A5C10" }}>👑 The 10-10-80 Kingdom Principle:</strong>
-              <p style={{ fontSize: "0.85rem", color: "#8B6914", marginTop: "0.35rem", lineHeight: 1.75 }}>Give 10%, Save 10%, Live on 80%. Start wherever you are — even 5-5-90 is powerful.</p>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {dashTab === "debt" && (
           <div className="card card-p">
@@ -2158,6 +2369,10 @@ function Dashboard({ plan, user, dashTab, setDashTab, checked, setChecked, check
         {dashTab === "credit" && <CreditScoreTab plan={plan} />}
         {dashTab === "networth" && <NetWorthTab user={user} plan={plan} />}
         {dashTab === "investments" && <InvestmentsTab user={user} />}
+        {dashTab === "bills" && <BillsTab user={user} />}
+        {dashTab === "subscriptions" && <SubscriptionsTab user={user} />}
+        {dashTab === "taxes" && <TaxTrackerTab user={user} />}
+        {dashTab === "trends" && <TrendsTab user={user} />}
       </main>
     </div>
   );
