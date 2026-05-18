@@ -1321,13 +1321,122 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
       });
     });
 
+    // ===== AUTO-CREATE VENDORS FROM EXPENSE TRANSACTIONS =====
+    const newVendors = [];
+    const seenVendorNames = new Set();
+
+    // Extract clean vendor name from a transaction description
+    const extractVendorName = (desc) => {
+      if (!desc) return null;
+      let d = desc.trim();
+      // Remove common bank metadata patterns
+      d = d.replace(/ORIG CO NAME:\s*/i, '');
+      d = d.replace(/ORIG ID:\S+/gi, '');
+      d = d.replace(/DESC DATE:\s*\S*/gi, '');
+      d = d.replace(/CO ENTRY DESCR:\s*\S+/gi, '');
+      d = d.replace(/SEC:\S+/gi, '');
+      d = d.replace(/TRACE#:\S+/gi, '');
+      d = d.replace(/EED:\s*\S+/gi, '');
+      d = d.replace(/IND ID:\S+/gi, '');
+      d = d.replace(/IND NAME:\s*/gi, '');
+      d = d.replace(/TRN:\s*\S+/gi, '');
+      d = d.replace(/REF\s*#?\s*\S+/gi, '');
+      d = d.replace(/\d{2}\/\d{2}(\/\d{2,4})?/g, ''); // dates
+      d = d.replace(/PURCHASE\s*-?\s*/i, '');
+      d = d.replace(/POS\s*PURCHASE\s*/i, '');
+      d = d.replace(/DEBIT CARD PURCHASE\s*/i, '');
+      d = d.replace(/CHECKCARD\s*\d*\s*/i, '');
+      d = d.replace(/\b\d{10,}\b/g, '');  // long account numbers
+      // Take first meaningful part (before stars, asterisks, or extra info)
+      d = d.split(/[\*\|]/)[0];
+      d = d.replace(/\s+/g, ' ').trim();
+      // Keep only first 3-4 words for cleanliness
+      const words = d.split(' ').filter(w => w.length > 1).slice(0, 4);
+      return words.join(' ').trim().slice(0, 60);
+    };
+
+    importRows.filter(r => r.include && r.type === 'expense' && !r.vendor_id).forEach(r => {
+      const cleanName = extractVendorName(r.description);
+      if (!cleanName || cleanName.length < 3) return;
+      const lname = cleanName.toLowerCase();
+      if (seenVendorNames.has(lname)) return;
+      // Skip if vendor already exists
+      if (vendors && vendors.some(v => v.name.toLowerCase() === lname)) return;
+      seenVendorNames.add(lname);
+      // Guess if it might need 1099 (avoid for big corporations)
+      const isCorporation = /walmart|amazon|target|costco|home depot|lowes|mcdonalds|starbucks|chase|bank of america|wells fargo|capital one|verizon|att|comcast|wix|godaddy|microsoft|google|apple|netflix|spotify|adobe|ups|fedex|usps|uber|lyft|paypal|stripe/i.test(cleanName);
+      newVendors.push({
+        id: 'vendor_' + Date.now() + '_' + Math.random().toString(36).slice(2,10),
+        user_id: user.id,
+        name: cleanName,
+        email: '',
+        phone: '',
+        address: '',
+        tax_id: '',
+        default_category: r.category || '',
+        is_1099: !isCorporation,  // contractors more likely to need 1099
+        notes: 'Auto-created from import',
+      });
+    });
+
+    // ===== AUTO-DETECT ZELLE/CASH APP DONORS (income transactions) =====
+    // Extract donor name from Zelle/Cash App payment received
+    const extractZelleDonor = (desc) => {
+      if (!desc) return null;
+      let d = desc.trim();
+
+      // Zelle patterns:
+      // "Zelle payment from JOHN SMITH 12345"
+      // "ZELLE FROM JOHN SMITH"
+      // "Zelle Receive from John Smith"
+      let m = d.match(/zelle\s*(?:payment)?\s*(?:receive[d]?\s*)?from\s+([A-Z][A-Za-z\s.'-]+?)(?:\s+\d|\s+[A-Z]{2,}|\s*$)/i);
+      if (m) return m[1].trim().replace(/\s+/g, ' ').slice(0, 50);
+
+      // Cash App patterns:
+      // "CASH APP*ELAINE BENSON"
+      // "Cash App $johnsmith"
+      // "SQUARE INC CASH APP JOHN"
+      m = d.match(/cash\s*app\s*\*?\s*([A-Z][A-Za-z\s.'-]+?)(?:\s+\d|\s+ID|\s*$)/i);
+      if (m) return m[1].trim().replace(/\s+/g, ' ').slice(0, 50);
+
+      // Venmo patterns:
+      // "VENMO PAYMENT JOHN SMITH"
+      m = d.match(/venmo\s*(?:payment)?\s*([A-Z][A-Za-z\s.'-]+?)(?:\s+\d|\s+ID|\s*$)/i);
+      if (m) return m[1].trim().replace(/\s+/g, ' ').slice(0, 50);
+
+      return null;
+    };
+
+    // Auto-create donors from Zelle/Cash App INCOME transactions
+    importRows.filter(r => r.include && r.type === 'income' && !r.donor_id).forEach(r => {
+      const senderName = extractZelleDonor(r.description);
+      if (!senderName) return;
+      const lname = senderName.toLowerCase();
+      if (seenNames.has(lname)) return;
+      if (donors.some(d => d.name.toLowerCase() === lname)) return;
+      seenNames.add(lname);
+      newDonors.push({
+        id: 'donor_' + Date.now() + '_' + Math.random().toString(36).slice(2,10),
+        user_id: user.id,
+        name: senderName,
+        email: '',
+        phone: '',
+        address: '',
+        total_given: 0,
+      });
+    });
+
     // Update local state IMMEDIATELY so UI feels responsive
     if (newDonors.length > 0) {
       setDonors(p => [...p, ...newDonors]);
     }
+    if (newVendors.length > 0) {
+      setVendors(p => [...(p||[]), ...newVendors]);
+    }
 
-    // Build donor lookup
+    // Build lookups
     const allDonors = [...donors, ...newDonors];
+    const allVendors = [...(vendors || []), ...newVendors];
 
     const toImport = importRows.filter(r => r.include).map(r => {
       let donorId = r.donor_id;
@@ -1335,11 +1444,28 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
         const found = allDonors.find(d => d.name.toLowerCase() === r.donorName.toLowerCase());
         if (found) donorId = found.id;
       }
+      // For income, also try Zelle/Cash App name extraction
+      if (!donorId && r.type === 'income') {
+        const senderName = extractZelleDonor(r.description);
+        if (senderName) {
+          const found = allDonors.find(d => d.name.toLowerCase() === senderName.toLowerCase());
+          if (found) donorId = found.id;
+        }
+      }
+      // For expenses, link to vendor
+      let vendorId = r.vendor_id;
+      if (!vendorId && r.type === 'expense') {
+        const cleanName = extractVendorName(r.description);
+        if (cleanName) {
+          const found = allVendors.find(v => v.name.toLowerCase() === cleanName.toLowerCase());
+          if (found) vendorId = found.id;
+        }
+      }
       // Remove internal _tithely fields before save
       return {
         id: r.id, user_id: user.id, type: r.type, date: r.date,
         amount: r.amount, category: r.category, description: r.description,
-        donor_id: donorId || null, fund_id: importFundId || null, notes: '',
+        donor_id: donorId || null, vendor_id: vendorId || null, fund_id: importFundId || null, notes: '',
       };
     });
 
@@ -1350,6 +1476,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
 
     let msg = `✓ Imported ${toImport.length} transactions!`;
     if (newDonors.length > 0) msg += `\n👥 Auto-created ${newDonors.length} new donors.`;
+    if (newVendors.length > 0) msg += `\n🏪 Auto-created ${newVendors.length} new vendors.`;
     alert(msg);
 
     // Save to Supabase in the background (non-blocking)
@@ -1365,6 +1492,16 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
             if (error) {
               console.error('Donor insert error:', error);
               errorMessage = 'Donor save error: ' + error.message;
+            }
+          }
+        }
+        if (newVendors.length > 0) {
+          for (let i = 0; i < newVendors.length; i += 100) {
+            const chunk = newVendors.slice(i, i+100);
+            const { error } = await sb.from('ksp_vendors').insert(chunk);
+            if (error) {
+              console.error('Vendor insert error:', error);
+              errorMessage = 'Vendor save error: ' + error.message;
             }
           }
         }
