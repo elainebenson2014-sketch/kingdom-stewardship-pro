@@ -1276,8 +1276,18 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
             const match = donors.find(d => d.name.toLowerCase() === donorName.toLowerCase());
             if (match) matchedDonorId = match.id;
           }
+          // Generate STABLE ID based on date+amount+description so re-uploading detects duplicates
+          // Same transaction = same ID = upsert skips it
+          const stableKey = (date || '') + '_' + amt.toFixed(2) + '_' + txType + '_' + (desc || '').slice(0, 80);
+          // Simple hash function
+          let hash = 0;
+          for (let i = 0; i < stableKey.length; i++) {
+            hash = ((hash << 5) - hash) + stableKey.charCodeAt(i);
+            hash = hash & hash; // Convert to 32bit integer
+          }
+          const stableId = 'bank_' + Math.abs(hash).toString(36) + '_' + (idx % 1000);
           return {
-            id: 'tx_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).slice(2,10),
+            id: stableId,
             date, description: desc, amount: amt, type: txType,
             category: chosenCat, donor_id: matchedDonorId, donorName,
             include: true,
@@ -2157,24 +2167,105 @@ function DonorsTab({ user, donors, setDonors, transactions, setTransactions, org
 
   // Auto-merge duplicates (by name)
   const handleDedupe = async () => {
+    // Smart dedupe: matches not just exact names, but also:
+    // - Partial names (e.g., "Karen" matches "Karen A Coleman")
+    // - Names without middle initials (e.g., "Karen Coleman" matches "Karen A Coleman")
+    // - Different capitalization
+
+    // First, build a normalized name key for each donor
+    const getNormalizedTokens = (name) => {
+      return name.toLowerCase().trim()
+        .replace(/[.,]/g, '')
+        .split(/\s+/)
+        .filter(t => t.length > 0);
+    };
+
+    // Group donors by their "core" name (first + last, ignoring middle initial)
     const groups = {};
     donors.forEach(d => {
-      const key = d.name.toLowerCase().trim();
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(d);
+      const tokens = getNormalizedTokens(d.name);
+      if (tokens.length === 0) return;
+
+      // Create multiple possible match keys for this donor:
+      // 1. First name only
+      // 2. First + last (skipping middle initials of 1 char)
+      // 3. Full normalized name
+      const keys = new Set();
+      keys.add(tokens[0]);  // first name
+      if (tokens.length >= 2) {
+        // Full name as one key
+        keys.add(tokens.join(' '));
+        // First + last (skip middle initials of 1 char)
+        const nonInitials = tokens.filter((t,i) => i === 0 || i === tokens.length-1 || t.length > 1);
+        keys.add(nonInitials.join(' '));
+        // First + last only
+        keys.add(tokens[0] + ' ' + tokens[tokens.length-1]);
+      }
+      d._matchKeys = Array.from(keys);
     });
-    const dupGroups = Object.values(groups).filter(g => g.length > 1);
+
+    // Find duplicate groups using union-find style matching
+    const dupGroups = [];
+    const assignedGroup = {};
+
+    donors.forEach((d1, i) => {
+      if (assignedGroup[d1.id] !== undefined) return;
+      const group = [d1];
+      assignedGroup[d1.id] = dupGroups.length;
+      donors.forEach((d2, j) => {
+        if (i === j) return;
+        if (assignedGroup[d2.id] !== undefined) return;
+        // Check if any match key matches
+        // Match logic: if shorter name's tokens are all in longer name (in order)
+        const t1 = getNormalizedTokens(d1.name);
+        const t2 = getNormalizedTokens(d2.name);
+        const shorter = t1.length <= t2.length ? t1 : t2;
+        const longer = t1.length <= t2.length ? t2 : t1;
+        // First names must match
+        if (shorter[0] !== longer[0]) return;
+        // If shorter has only first name, that's a match (partial)
+        if (shorter.length === 1) {
+          group.push(d2);
+          assignedGroup[d2.id] = dupGroups.length;
+          return;
+        }
+        // If both have last names, last names must match
+        if (shorter[shorter.length-1] === longer[longer.length-1]) {
+          group.push(d2);
+          assignedGroup[d2.id] = dupGroups.length;
+        }
+      });
+      if (group.length > 1) {
+        dupGroups.push(group);
+      }
+    });
+
+    // Clean up
+    donors.forEach(d => delete d._matchKeys);
+
     if (dupGroups.length === 0) {
       alert('No duplicate donors found! ✓');
       return;
     }
     const totalDups = dupGroups.reduce((s,g) => s + (g.length-1), 0);
-    if (!confirm(`Found ${dupGroups.length} sets of duplicates (${totalDups} extra records). Merge them now? The most complete record will be kept; transactions will be re-linked.`)) return;
+
+    // Show a preview of what will merge
+    const preview = dupGroups.slice(0, 5).map(g => {
+      return `• ${g.map(d => d.name).join(' = ')}`;
+    }).join('\n');
+    const more = dupGroups.length > 5 ? `\n...and ${dupGroups.length - 5} more` : '';
+
+    if (!confirm(`Found ${dupGroups.length} sets of duplicates (${totalDups} extra records).\n\nPreview:\n${preview}${more}\n\nMerge them now? The most complete record (with most info) will be kept; transactions will be re-linked.`)) return;
+
     const idsToDelete = [];
-    const reassignments = [];  // {fromId, toId}
+    const reassignments = [];
     dupGroups.forEach(group => {
-      // Keep the one with the most info (email, phone, address filled in)
-      const score = (d) => (d.email?1:0) + (d.phone?1:0) + (d.address?1:0);
+      // Keep the one with the most info AND longest name (more complete)
+      const score = (d) => {
+        const fields = (d.email?1:0) + (d.phone?1:0) + (d.address?1:0);
+        const nameLen = (d.name||'').split(/\s+/).length;  // more tokens = more complete
+        return fields * 10 + nameLen;
+      };
       group.sort((a,b) => score(b) - score(a));
       const keeper = group[0];
       group.slice(1).forEach(d => {
