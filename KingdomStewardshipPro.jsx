@@ -1756,13 +1756,18 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
           </div>
           {(() => {
             const existingIds = new Set(transactions.map(t => t.id));
-            const dupCount = importRows.filter(r => existingIds.has(r.id)).length;
+            // Also build a content-based key for duplicate detection
+            // (handles case where IDs differ but transaction is same)
+            const contentKey = (t) => `${t.date}|${parseFloat(t.amount).toFixed(2)}|${t.type}|${(t.description||'').trim().slice(0,80)}`;
+            const existingContentKeys = new Set(transactions.map(contentKey));
+            const isDupRow = (r) => existingIds.has(r.id) || existingContentKeys.has(contentKey(r));
+            const dupCount = importRows.filter(isDupRow).length;
             if (dupCount > 0) {
               return (
                 <div style={{ background:'#FFF3F3', padding:10, borderRadius:8, marginBottom:'1rem', border:`1px solid ${RED}` }}>
                   <strong style={{ color: RED }}>⚠️ {dupCount} transaction{dupCount!==1?'s':''} already imported (highlighted in red below)</strong>
                   <p style={{ fontSize:'0.82rem', color: RED, marginTop:4 }}>These have been auto-deselected. Only NEW transactions will import.</p>
-                  <button onClick={() => setImportRows(prev => prev.map(r => existingIds.has(r.id) ? {...r, include: false} : r))} style={{ background: RED, color:'#fff', border:'none', padding:'5px 12px', borderRadius:6, fontSize:'0.78rem', fontWeight:700, cursor:'pointer', marginTop:6 }}>✓ Skip duplicates</button>
+                  <button onClick={() => setImportRows(prev => prev.map(r => isDupRow(r) ? {...r, include: false} : r))} style={{ background: RED, color:'#fff', border:'none', padding:'5px 12px', borderRadius:6, fontSize:'0.78rem', fontWeight:700, cursor:'pointer', marginTop:6 }}>✓ Skip duplicates</button>
                 </div>
               );
             }
@@ -1792,7 +1797,10 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
               </tr></thead>
               <tbody>
                 {importRows.map((r, i) => {
-                  const isDup = transactions.some(t => t.id === r.id);
+                  const isDup = transactions.some(t =>
+                    t.id === r.id ||
+                    (t.date === r.date && parseFloat(t.amount).toFixed(2) === parseFloat(r.amount).toFixed(2) && t.type === r.type && (t.description||'').trim().slice(0,80) === (r.description||'').trim().slice(0,80))
+                  );
                   return (
                   <tr key={r.id} style={{ borderBottom:`1px solid ${BORDER}`, background: isDup ? '#FFF3F3' : (r.include ? 'transparent' : '#F8F8F8') }}>
                     <td style={{ padding:6 }}><input type="checkbox" disabled={isDup} checked={r.include && !isDup} onChange={e=>setImportRows(p=>p.map((x,j)=>j===i?{...x, include:e.target.checked}:x))} /></td>
