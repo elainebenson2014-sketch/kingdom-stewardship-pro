@@ -1247,17 +1247,40 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
           }
           date = parsedDate;
           let desc = (descIdx >= 0 ? c[descIdx] : '') || 'Imported';
+          // Helper to parse amounts: handles $1,234.56, ($1,234.56) accounting negatives, -$1,234.56
+          const parseAmt = (str) => {
+            if (!str) return 0;
+            let s = String(str).trim();
+            // Check for parentheses (accounting negative)
+            const isParenNeg = /^\s*\(.*\)\s*$/.test(s);
+            // Strip $ , ( ) and whitespace
+            s = s.replace(/[$,()\s]/g, '');
+            let n = parseFloat(s) || 0;
+            if (isParenNeg) n = -Math.abs(n);
+            return n;
+          };
+
           let amt = 0;
           let txType = 'expense';
+          // Check for "Details" column with DEBIT/CREDIT hint (Chase format)
+          const detailsIdx = findCol(['details']);
+          const detailsVal = detailsIdx >= 0 ? (c[detailsIdx] || '').toUpperCase().trim() : '';
+          const detailsTypeHint = detailsVal === 'CREDIT' || detailsVal === 'DSLIP' ? 'income' : (detailsVal === 'DEBIT' ? 'expense' : '');
+
           if (amtIdx >= 0 && c[amtIdx]) {
-            const n = parseFloat((c[amtIdx]||'').replace(/[$,]/g,'')) || 0;
+            const n = parseAmt(c[amtIdx]);
             amt = Math.abs(n);
-            txType = n >= 0 ? 'income' : 'expense';
+            // Prefer the Details column hint if available, otherwise use sign
+            if (detailsTypeHint) {
+              txType = detailsTypeHint;
+            } else {
+              txType = n >= 0 ? 'income' : 'expense';
+            }
           } else if (debitIdx >= 0 || creditIdx >= 0) {
-            const debit = debitIdx >= 0 ? (parseFloat((c[debitIdx]||'').replace(/[$,]/g,'')) || 0) : 0;
-            const credit = creditIdx >= 0 ? (parseFloat((c[creditIdx]||'').replace(/[$,]/g,'')) || 0) : 0;
-            if (credit > 0) { amt = credit; txType = 'income'; }
-            else if (debit > 0) { amt = debit; txType = 'expense'; }
+            const debit = debitIdx >= 0 ? parseAmt(c[debitIdx]) : 0;
+            const credit = creditIdx >= 0 ? parseAmt(c[creditIdx]) : 0;
+            if (Math.abs(credit) > 0) { amt = Math.abs(credit); txType = 'income'; }
+            else if (Math.abs(debit) > 0) { amt = Math.abs(debit); txType = 'expense'; }
           }
           const cat = catIdx >= 0 ? c[catIdx] : '';
           const donorName = donorIdx >= 0 ? c[donorIdx] : '';
