@@ -693,7 +693,7 @@ function Dashboard({ user, onLogout }) {
         {tab === 'vendors' && <VendorsTab user={user} vendors={vendors} setVendors={setVendors} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
         {tab === 'recurring' && <RecurringTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} vendors={vendors} funds={funds} orgConfig={orgConfig} />}
         {tab === 'funds' && orgConfig.hasFunds && <FundsTab user={user} funds={funds} setFunds={setFunds} transactions={transactions} />}
-        {tab === 'reports' && <ReportsTab transactions={transactions} donors={donors} vendors={vendors} orgConfig={orgConfig} orgName={orgName} />}
+        {tab === 'reports' && <ReportsTab transactions={transactions} donors={donors} vendors={vendors} funds={funds} orgConfig={orgConfig} orgName={orgName} />}
         {tab === 'reconcile' && <ReconcileTab user={user} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
         {tab === 'statements' && <StatementsTab user={user} donors={donors} transactions={transactions} orgConfig={orgConfig} orgName={orgName} />}
         {tab === 'settings' && <SettingsTab user={user} orgName={orgName} setOrgName={setOrgName} orgType={orgType} setOrgType={setOrgType} customIncomeCats={customIncomeCats} setCustomIncomeCats={setCustomIncomeCats} customExpenseCats={customExpenseCats} setCustomExpenseCats={setCustomExpenseCats} />}
@@ -3249,21 +3249,26 @@ function FundsTab({ user, funds, setFunds, transactions }) {
 }
 
 // ============ REPORTS TAB ============
-function ReportsTab({ transactions, donors, orgConfig, orgName }) {
+function ReportsTab({ transactions, donors, vendors, funds, orgConfig, orgName }) {
   const [year, setYear] = useState(new Date().getFullYear());
   const [customMode, setCustomMode] = useState(false);
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10));
   const [endDate, setEndDate] = useState(new Date().toISOString().slice(0,10));
   const [showByDonor, setShowByDonor] = useState(false);
   const [showByMonth, setShowByMonth] = useState(false);
+  const [filterFundId, setFilterFundId] = useState('all'); // 'all' or specific fund_id
 
   // Apply date filter
   const filteredTxs = transactions.filter(t => {
+    // Date filter
     if (customMode) {
-      return t.date >= startDate && t.date <= endDate;
+      if (!(t.date >= startDate && t.date <= endDate)) return false;
     } else {
-      return new Date(t.date).getFullYear() === year;
+      if (new Date(t.date).getFullYear() !== year) return false;
     }
+    // Fund filter
+    if (filterFundId !== 'all' && t.fund_id !== filterFundId) return false;
+    return true;
   });
 
   const yearTxs = filteredTxs;
@@ -3413,6 +3418,11 @@ ${Object.keys(excludedByCategory).length > 0 ? `
             </div>
           </>
         )}
+        <span style={{ fontSize:'0.78rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase', marginLeft:8 }}>Fund:</span>
+        <select value={filterFundId} onChange={e=>setFilterFundId(e.target.value)} style={{ padding:'6px 10px', fontSize:'0.85rem', borderRadius:6, border:`1px solid ${NAVY}` }}>
+          <option value="all">All Funds</option>
+          {(funds || []).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+        </select>
       </div>
 
       {/* Section Toggles */}
@@ -3424,7 +3434,7 @@ ${Object.keys(excludedByCategory).length > 0 ? `
       {/* P&L Statement */}
       <div className="card print-area" style={{ marginBottom:'1.5rem' }}>
         <div style={{ background: NAVY, color:'#fff', padding:'1rem 1.5rem', borderRadius:'12px 12px 0 0' }}>
-          <h3 style={{ color:'#fff', fontSize:'1.2rem' }}>Profit & Loss Statement</h3>
+          <h3 style={{ color:'#fff', fontSize:'1.2rem' }}>Profit & Loss Statement{filterFundId !== 'all' ? ` — ${(funds || []).find(f=>f.id===filterFundId)?.name || ''}` : ''}</h3>
           <p style={{ fontSize:'0.85rem', color:'#A8B5C8', marginTop:4 }}>{customMode ? `${startDate} to ${endDate}` : `For year ending December 31, ${year}`}</p>
         </div>
         <div style={{ padding:'1.5rem' }}>
