@@ -665,6 +665,7 @@ function Dashboard({ user, onLogout }) {
             { id:'recurring', icon:'🔄', label:'Recurring' },
             ...(orgConfig.hasFunds ? [{ id:'funds', icon:'🏦', label:'Funds' }] : []),
             { id:'reports', icon:'📄', label:'Reports' },
+            { id:'reconcile', icon:'🔍', label:'Reconcile' },
             { id:'statements', icon:'📃', label:'Statements' },
             { id:'settings', icon:'⚙️', label:'Settings' },
           ].map(item => (
@@ -693,6 +694,7 @@ function Dashboard({ user, onLogout }) {
         {tab === 'recurring' && <RecurringTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} vendors={vendors} funds={funds} orgConfig={orgConfig} />}
         {tab === 'funds' && orgConfig.hasFunds && <FundsTab user={user} funds={funds} setFunds={setFunds} transactions={transactions} />}
         {tab === 'reports' && <ReportsTab transactions={transactions} donors={donors} vendors={vendors} orgConfig={orgConfig} orgName={orgName} />}
+        {tab === 'reconcile' && <ReconcileTab user={user} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
         {tab === 'statements' && <StatementsTab user={user} donors={donors} transactions={transactions} orgConfig={orgConfig} orgName={orgName} />}
         {tab === 'settings' && <SettingsTab user={user} orgName={orgName} setOrgName={setOrgName} orgType={orgType} setOrgType={setOrgType} customIncomeCats={customIncomeCats} setCustomIncomeCats={setCustomIncomeCats} customExpenseCats={customExpenseCats} setCustomExpenseCats={setCustomExpenseCats} />}
       </main>
@@ -1277,8 +1279,12 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
           if (amtIdx >= 0 && c[amtIdx]) {
             const n = parseAmt(c[amtIdx]);
             amt = Math.abs(n);
-            // Prefer the Details column hint if available, otherwise use sign
-            if (detailsTypeHint) {
+            // REFUND DETECTION: If Details says DEBIT but amount is POSITIVE,
+            // it's actually a refund (money coming back) → mark as income
+            // Chase format: refunds appear with DEBIT label but positive amount
+            if (detailsTypeHint === 'expense' && n > 0) {
+              txType = 'income';  // It's a refund
+            } else if (detailsTypeHint) {
               txType = detailsTypeHint;
             } else {
               txType = n >= 0 ? 'income' : 'expense';
@@ -3864,6 +3870,328 @@ function StatementsTab({ user, donors, transactions, orgConfig, orgName }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ============ RECONCILE TAB ============
+function ReconcileTab({ user, transactions, setTransactions, orgConfig }) {
+  const today = new Date();
+  const [year, setYear] = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth());
+  const [bankIncome, setBankIncome] = useState('');
+  const [bankExpense, setBankExpense] = useState('');
+  const [diagnostics, setDiagnostics] = useState(null);
+  const [fixing, setFixing] = useState(null);
+
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  
+  const EXCLUDED_CATS = ['Tithely Deposit', 'Givelify Deposit', 'Transfer In', 'Transfer Out', 'Loan Proceeds'];
+
+  // Calculate app P&L totals
+  const monthTxs = transactions.filter(t => {
+    const d = new Date(t.date);
+    return d.getFullYear() === year && d.getMonth() === month;
+  });
+
+  const inPL = monthTxs.filter(t => !EXCLUDED_CATS.includes(t.category));
+  const excluded = monthTxs.filter(t => EXCLUDED_CATS.includes(t.category));
+
+  const appIncome = inPL.filter(t => t.type === 'income').reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+  const appExpense = inPL.filter(t => t.type === 'expense').reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+  const appExcluded = excluded.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+
+  const bankInc = parseFloat(bankIncome) || 0;
+  const bankExp = parseFloat(bankExpense) || 0;
+  const incomeDiff = bankInc - appIncome;
+  const expenseDiff = bankExp - appExpense;
+
+  const runDiagnostics = () => {
+    const issues = [];
+
+    // 1. Tithely double-counting: individual gifts NOT in Tithely Deposit
+    const tithelyMisclassified = monthTxs.filter(t => 
+      t.id && t.id.startsWith('thly') && t.category !== 'Tithely Deposit'
+    );
+    if (tithelyMisclassified.length > 0) {
+      const total = tithelyMisclassified.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+      issues.push({
+        id: 'tithely-double',
+        severity: 'high',
+        title: 'Tithely Individual Gifts Double-Counted',
+        description: `${tithelyMisclassified.length} Tithely CSV gifts totaling $${total.toFixed(2)} are categorized in your P&L. They should be "Tithely Deposit" (excluded) since bank batch deposits already count this income.`,
+        fix: 'Move all to "Tithely Deposit"',
+        txIds: tithelyMisclassified.map(t => t.id),
+        impact: `Reduces P&L income by $${total.toFixed(2)}`
+      });
+    }
+
+    // 2. Cash App offerings marked as expense
+    const cashAppExpense = monthTxs.filter(t => 
+      t.type === 'expense' && 
+      (t.description || '').toUpperCase().includes('CASH APP') &&
+      (t.description || '').toUpperCase().includes('FIRST FRUITS')
+    );
+    if (cashAppExpense.length > 0) {
+      const total = cashAppExpense.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+      issues.push({
+        id: 'cashapp-offering',
+        severity: 'high',
+        title: 'Cash App Offerings Marked As Expense',
+        description: `${cashAppExpense.length} Cash App transactions totaling $${total.toFixed(2)} are marked as expense but appear to be incoming offerings.`,
+        fix: 'Convert to Income/Offerings',
+        txIds: cashAppExpense.map(t => t.id),
+        impact: `Increases income by $${total.toFixed(2)}, reduces expense by $${total.toFixed(2)}`
+      });
+    }
+
+    // 3. Amazon/Walmart/Sams refunds (small amounts likely refunds)
+    const possibleRefunds = monthTxs.filter(t => 
+      t.type === 'expense' && 
+      ((t.description || '').toUpperCase().match(/AMAZON\.COM\s+AMZN/) ||
+       (t.description || '').toUpperCase().match(/AMAZON MKTPLACE PMTS/)) &&
+      parseFloat(t.amount) < 50
+    );
+    if (possibleRefunds.length > 0) {
+      const total = possibleRefunds.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+      issues.push({
+        id: 'possible-refunds',
+        severity: 'medium',
+        title: 'Possible Amazon Refunds',
+        description: `${possibleRefunds.length} small Amazon transactions totaling $${total.toFixed(2)} might be refunds (compare to your bank statement — refunds appear with NO minus sign in DEBIT rows).`,
+        fix: 'Review individually (manual)',
+        txIds: possibleRefunds.map(t => t.id),
+        impact: `Could shift up to $${total.toFixed(2)} from expense to income`
+      });
+    }
+
+    // 4. Transfers categorized wrong (online transfers should be Transfer In/Out)
+    const wrongTransfers = monthTxs.filter(t => 
+      ((t.description || '').toLowerCase().includes('online transfer') || 
+       (t.description || '').toLowerCase().includes('acct_xfer')) &&
+      !EXCLUDED_CATS.includes(t.category)
+    );
+    if (wrongTransfers.length > 0) {
+      const total = wrongTransfers.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+      issues.push({
+        id: 'wrong-transfers',
+        severity: 'medium',
+        title: 'Internal Transfers Not Excluded',
+        description: `${wrongTransfers.length} internal account transfers totaling $${total.toFixed(2)} are in your P&L. They should be excluded (Transfer In/Out).`,
+        fix: 'Move to Transfer In/Out',
+        txIds: wrongTransfers.map(t => t.id),
+        impact: `Removes $${total.toFixed(2)} from P&L (donor records preserved)`
+      });
+    }
+
+    if (issues.length === 0) {
+      issues.push({
+        id: 'no-issues',
+        severity: 'success',
+        title: '✅ No Common Issues Detected',
+        description: 'Your books look clean for this month. Any remaining differences may be missing transactions, fees, or bank errors. Review your bank statement line-by-line.',
+        fix: null,
+        txIds: [],
+        impact: 'All known patterns checked'
+      });
+    }
+
+    setDiagnostics(issues);
+  };
+
+  const applyFix = async (issue) => {
+    if (!issue.fix || issue.txIds.length === 0) return;
+    if (!window.confirm(`Apply fix: "${issue.fix}"?\n\nThis will update ${issue.txIds.length} transactions.`)) return;
+
+    setFixing(issue.id);
+    try {
+      let updates = {};
+      if (issue.id === 'tithely-double') {
+        updates = { category: 'Tithely Deposit' };
+      } else if (issue.id === 'cashapp-offering') {
+        updates = { type: 'income', category: 'Offerings' };
+      } else if (issue.id === 'wrong-transfers') {
+        // Will set per-transaction based on income/expense type
+      }
+
+      if (issue.id === 'wrong-transfers') {
+        // Per-transaction logic
+        const sb = await getSupabase();
+        for (const id of issue.txIds) {
+          const tx = transactions.find(t => t.id === id);
+          if (!tx) continue;
+          const newCat = tx.type === 'income' ? 'Transfer In' : 'Transfer Out';
+          const { error } = await sb
+            .from('ksp_transactions')
+            .update({ category: newCat })
+            .eq('id', id)
+            .eq('user_id', user.id);
+          if (error) console.error(error);
+        }
+      } else if (Object.keys(updates).length > 0) {
+        const sb = await getSupabase();
+        const { error } = await sb
+          .from('ksp_transactions')
+          .update(updates)
+          .in('id', issue.txIds)
+          .eq('user_id', user.id);
+        if (error) {
+          alert('Error: ' + error.message);
+          setFixing(null);
+          return;
+        }
+      }
+
+      // Reload transactions
+      const sb2 = await getSupabase();
+      const { data } = await sb2
+        .from('ksp_transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('date', { ascending: false });
+      if (data) setTransactions(data);
+
+      alert(`✅ Fixed ${issue.txIds.length} transactions!`);
+      setDiagnostics(null); // Force re-run
+      runDiagnostics();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      setFixing(null);
+    }
+  };
+
+  const fmt = (n) => '$' + (parseFloat(n) || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  return (
+    <div>
+      <div style={{ marginBottom:'1.5rem' }}>
+        <h2 style={{ fontSize:'1.75rem', fontWeight:600, color:NAVY }}>🔍 Bank Reconciliation</h2>
+        <p style={{ color:'#6B7280', marginTop:'0.5rem' }}>Compare your books to your bank statement. Find &amp; fix discrepancies with one click.</p>
+      </div>
+
+      {/* Month Selector */}
+      <div className="card card-p" style={{ marginBottom:'1.5rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'auto 1fr 1fr', gap:'1rem', alignItems:'center' }}>
+          <div>
+            <label style={{ display:'block', fontSize:12, fontWeight:600, color:'#6B7280', marginBottom:4 }}>MONTH</label>
+            <div style={{ display:'flex', gap:8 }}>
+              <select className="input" value={month} onChange={e => setMonth(parseInt(e.target.value))} style={{ width:140 }}>
+                {monthNames.map((m, i) => <option key={i} value={i}>{m}</option>)}
+              </select>
+              <select className="input" value={year} onChange={e => setYear(parseInt(e.target.value))} style={{ width:100 }}>
+                {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={{ display:'block', fontSize:12, fontWeight:600, color:'#6B7280', marginBottom:4 }}>BANK INCOME (from statement)</label>
+            <input className="input" type="number" step="0.01" placeholder="e.g., 15432.34" value={bankIncome} onChange={e => setBankIncome(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ display:'block', fontSize:12, fontWeight:600, color:'#6B7280', marginBottom:4 }}>BANK EXPENSE (from statement)</label>
+            <input className="input" type="number" step="0.01" placeholder="e.g., 15465.59" value={bankExpense} onChange={e => setBankExpense(e.target.value)} />
+          </div>
+        </div>
+      </div>
+
+      {/* Comparison Cards */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginBottom:'1.5rem' }}>
+        {/* Income Card */}
+        <div className="card card-p" style={{ borderLeft: `4px solid ${Math.abs(incomeDiff) < 0.01 && bankInc > 0 ? '#10B981' : '#F59E0B'}` }}>
+          <h3 style={{ fontSize:'1rem', fontWeight:600, marginBottom:'1rem' }}>💰 Income</h3>
+          <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0' }}>
+            <span>Bank Statement:</span>
+            <strong>{bankInc > 0 ? fmt(bankInc) : '—'}</strong>
+          </div>
+          <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderTop:'1px solid #E5E7EB' }}>
+            <span>App P&amp;L:</span>
+            <strong>{fmt(appIncome)}</strong>
+          </div>
+          <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderTop:'1px solid #E5E7EB', color: Math.abs(incomeDiff) < 0.01 ? '#10B981' : '#F59E0B' }}>
+            <span><strong>Difference:</strong></span>
+            <strong>{bankInc > 0 ? (Math.abs(incomeDiff) < 0.01 ? '✅ MATCH' : (incomeDiff > 0 ? '+' : '') + fmt(incomeDiff)) : '—'}</strong>
+          </div>
+          <div style={{ fontSize:12, color:'#6B7280', marginTop:8 }}>Excluded (donor detail): {fmt(appExcluded)}</div>
+        </div>
+
+        {/* Expense Card */}
+        <div className="card card-p" style={{ borderLeft: `4px solid ${Math.abs(expenseDiff) < 0.01 && bankExp > 0 ? '#10B981' : '#F59E0B'}` }}>
+          <h3 style={{ fontSize:'1rem', fontWeight:600, marginBottom:'1rem' }}>💸 Expense</h3>
+          <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0' }}>
+            <span>Bank Statement:</span>
+            <strong>{bankExp > 0 ? fmt(bankExp) : '—'}</strong>
+          </div>
+          <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderTop:'1px solid #E5E7EB' }}>
+            <span>App P&amp;L:</span>
+            <strong>{fmt(appExpense)}</strong>
+          </div>
+          <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderTop:'1px solid #E5E7EB', color: Math.abs(expenseDiff) < 0.01 ? '#10B981' : '#F59E0B' }}>
+            <span><strong>Difference:</strong></span>
+            <strong>{bankExp > 0 ? (Math.abs(expenseDiff) < 0.01 ? '✅ MATCH' : (expenseDiff > 0 ? '+' : '') + fmt(expenseDiff)) : '—'}</strong>
+          </div>
+        </div>
+      </div>
+
+      {/* Run Diagnostics Button */}
+      <div style={{ marginBottom:'1.5rem' }}>
+        <button className="btn btn-navy" onClick={runDiagnostics} style={{ fontSize:'1rem', padding:'12px 24px' }}>
+          🔍 Find Discrepancies for {monthNames[month]} {year}
+        </button>
+      </div>
+
+      {/* Diagnostic Results */}
+      {diagnostics && diagnostics.length > 0 && (
+        <div className="card card-p">
+          <h3 style={{ marginBottom:'1rem' }}>📋 Diagnostic Results</h3>
+          {diagnostics.map((issue) => (
+            <div key={issue.id} style={{
+              padding:'1rem',
+              marginBottom:'0.75rem',
+              border:`1px solid ${issue.severity === 'success' ? '#10B981' : issue.severity === 'high' ? '#EF4444' : '#F59E0B'}`,
+              borderRadius:8,
+              background: issue.severity === 'success' ? '#F0FDF4' : issue.severity === 'high' ? '#FEF2F2' : '#FFFBEB'
+            }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'start', gap:'1rem' }}>
+                <div style={{ flex:1 }}>
+                  <h4 style={{ margin:0, marginBottom:6, fontSize:'1rem' }}>
+                    {issue.severity === 'success' ? '✅' : issue.severity === 'high' ? '🔴' : '🟡'} {issue.title}
+                  </h4>
+                  <p style={{ margin:0, fontSize:'0.9rem', color:'#4B5563' }}>{issue.description}</p>
+                  {issue.impact && (
+                    <p style={{ margin:'4px 0 0', fontSize:'0.85rem', color:'#6B7280', fontStyle:'italic' }}>
+                      Impact: {issue.impact}
+                    </p>
+                  )}
+                </div>
+                {issue.fix && issue.txIds.length > 0 && (
+                  <button
+                    className="btn btn-gold"
+                    onClick={() => applyFix(issue)}
+                    disabled={fixing === issue.id}
+                    style={{ whiteSpace:'nowrap' }}
+                  >
+                    {fixing === issue.id ? 'Fixing...' : '⚡ ' + issue.fix}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Help Section */}
+      <div className="card card-p" style={{ marginTop:'1.5rem', background:'#F9FAFB' }}>
+        <h4 style={{ marginBottom:8 }}>💡 How to Reconcile</h4>
+        <ol style={{ margin:0, paddingLeft:20, fontSize:'0.9rem', color:'#4B5563', lineHeight:1.8 }}>
+          <li>Open your bank statement for the month</li>
+          <li>Find the total CREDIT (income) and total DEBIT (expense) amounts</li>
+          <li>Enter them in the fields above</li>
+          <li>The cards turn GREEN ✅ when they match the app exactly</li>
+          <li>If they don't match, click "Find Discrepancies" — the app checks for common issues</li>
+          <li>Click "Apply Fix" buttons to fix issues with one click</li>
+        </ol>
+      </div>
     </div>
   );
 }
