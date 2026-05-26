@@ -799,6 +799,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
   const [bulkCategory, setBulkCategory] = useState('Tithes');
   const [bulkServiceNote, setBulkServiceNote] = useState('Sunday Service');
   const [importRows, setImportRows] = useState([]);
+  const [importSourceType, setImportSourceType] = useState('bank'); // 'bank' or 'giving'
   const [importFundId, setImportFundId] = useState(funds[0]?.id || '');
   const [selectedIds, setSelectedIds] = useState([]);
   const [filterMonth, setFilterMonth] = useState('all');
@@ -970,23 +971,29 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
           if (addrParts.length > 0) fullAddr = fullAddr + (fullAddr ? ', ' : '') + addrParts.join(', ');
 
           // Map Tithely "Giving Type" to our categories
+          // If user clicked "💝 Upload Giving", force "Tithely Deposit" (excluded from P&L)
           const validCats = orgConfig.incomeCategories;
-          let chosenCat = validCats.find(vc => vc.toLowerCase() === (givingType||'').toLowerCase()) || '';
-          if (!chosenCat) {
-            const gt = (givingType || '').toLowerCase();
-            if (/tithe/i.test(gt)) chosenCat = 'Tithes';
-            else if (/general|offering/i.test(gt)) chosenCat = 'Offerings';
-            else if (/building|capital/i.test(gt)) chosenCat = 'Building Fund';
-            else if (/mission/i.test(gt)) chosenCat = 'Missions';
-            else if (/youth/i.test(gt)) chosenCat = 'Youth Ministry';
-            else if (/children|kids/i.test(gt)) chosenCat = "Children's Ministry";
-            else if (/benevolence/i.test(gt)) chosenCat = 'Benevolence Fund';
-            else if (/easter/i.test(gt)) chosenCat = 'Easter Offering';
-            else if (/christmas/i.test(gt)) chosenCat = 'Christmas Offering';
-            else if (/memorial/i.test(gt)) chosenCat = 'Memorial Gifts';
-            else if (/pledge/i.test(gt)) chosenCat = 'Pledges Received';
-            else chosenCat = 'Online Giving';
-            if (!validCats.includes(chosenCat)) chosenCat = validCats[0];
+          let chosenCat;
+          if (importSourceType === 'giving') {
+            chosenCat = 'Tithely Deposit';
+          } else {
+            chosenCat = validCats.find(vc => vc.toLowerCase() === (givingType||'').toLowerCase()) || '';
+            if (!chosenCat) {
+              const gt = (givingType || '').toLowerCase();
+              if (/tithe/i.test(gt)) chosenCat = 'Tithes';
+              else if (/general|offering/i.test(gt)) chosenCat = 'Offerings';
+              else if (/building|capital/i.test(gt)) chosenCat = 'Building Fund';
+              else if (/mission/i.test(gt)) chosenCat = 'Missions';
+              else if (/youth/i.test(gt)) chosenCat = 'Youth Ministry';
+              else if (/children|kids/i.test(gt)) chosenCat = "Children's Ministry";
+              else if (/benevolence/i.test(gt)) chosenCat = 'Benevolence Fund';
+              else if (/easter/i.test(gt)) chosenCat = 'Easter Offering';
+              else if (/christmas/i.test(gt)) chosenCat = 'Christmas Offering';
+              else if (/memorial/i.test(gt)) chosenCat = 'Memorial Gifts';
+              else if (/pledge/i.test(gt)) chosenCat = 'Pledges Received';
+              else chosenCat = 'Online Giving';
+              if (!validCats.includes(chosenCat)) chosenCat = validCats[0];
+            }
           }
 
           // Match donor by name (skip Anonymous)
@@ -1651,9 +1658,13 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
             document.body.appendChild(a); a.click(); document.body.removeChild(a);
             URL.revokeObjectURL(url);
           }}>📤 Export CSV</button>
-          <label className="btn btn-outline" style={{ cursor:'pointer' }}>
-            📥 Import CSV
-            <input type="file" accept=".csv" style={{ display:'none' }} onChange={handleCSVUpload} />
+          <label className="btn btn-outline" style={{ cursor:'pointer', background:'#F0F8FF', borderColor:'#2563EB', color:'#2563EB' }} title="Upload Chase, BofA, Wells Fargo, or other bank CSV — flows to P&L">
+            🏦 Upload Bank
+            <input type="file" accept=".csv" style={{ display:'none' }} onChange={(e) => { setImportSourceType('bank'); handleCSVUpload(e); }} />
+          </label>
+          <label className="btn btn-outline" style={{ cursor:'pointer', background:'#FFF8E1', borderColor:'#C9A84C', color:'#7A5C10' }} title="Upload Tithely, Givelify, Pushpay — for donor detail only, excluded from P&L">
+            💝 Upload Giving
+            <input type="file" accept=".csv,.tsv,.txt" style={{ display:'none' }} onChange={(e) => { setImportSourceType('giving'); handleCSVUpload(e); }} />
           </label>
           <button className="btn btn-navy" onClick={()=>setShowAdd(true)}>+ Add Transaction</button>
         </div>
@@ -1772,10 +1783,32 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
       )}
 
       {showImport && (
-        <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${GOLD}` }}>
+        <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${importSourceType === 'giving' ? GOLD : '#2563EB'}` }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
             <h3>📥 Review Import ({importRows.filter(r=>r.include).length} of {importRows.length} selected)</h3>
             <button onClick={()=>{ setShowImport(false); setImportRows([]); }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18 }}>×</button>
+          </div>
+
+          {/* Source Type Banner */}
+          <div style={{
+            padding:'10px 14px',
+            marginBottom:'1rem',
+            background: importSourceType === 'giving' ? '#FFF8E1' : '#F0F8FF',
+            border: `1px solid ${importSourceType === 'giving' ? GOLD : '#2563EB'}`,
+            borderRadius:8,
+            fontSize:'0.85rem'
+          }}>
+            {importSourceType === 'giving' ? (
+              <>
+                <strong style={{ color:'#7A5C10' }}>💝 Giving Platform Upload</strong>
+                <span style={{ color:'#7A5C10', marginLeft:8 }}>— Donor detail only. Auto-categorized as "Tithely Deposit" (excluded from P&L). Bank deposits are your income source of truth.</span>
+              </>
+            ) : (
+              <>
+                <strong style={{ color:'#1E40AF' }}>🏦 Bank Statement Upload</strong>
+                <span style={{ color:'#1E40AF', marginLeft:8 }}>— These flow to your P&L. Zelle/Cash App/Venmo donors auto-linked.</span>
+              </>
+            )}
           </div>
           {(() => {
             const existingIds = new Set(transactions.map(t => t.id));
