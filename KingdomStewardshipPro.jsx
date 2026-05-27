@@ -826,7 +826,39 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
     const reader = new FileReader();
     reader.onload = ev => {
       const text = ev.target.result;
-      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      
+      // Parse CSV/TSV properly, respecting quoted multi-line fields
+      // This handles memos like "Tithes 400\nBldg 50" without breaking row alignment
+      const splitLinesRespectQuotes = (str) => {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < str.length; i++) {
+          const ch = str[i];
+          if (ch === '"') {
+            // Handle escaped quote ""
+            if (i + 1 < str.length && str[i + 1] === '"') {
+              current += '"';
+              i++;
+            } else {
+              inQuotes = !inQuotes;
+              current += ch;
+            }
+          } else if ((ch === '\n' || ch === '\r') && !inQuotes) {
+            // Only split on newlines OUTSIDE quotes
+            if (current.trim()) result.push(current);
+            current = '';
+            // Skip \r\n combo
+            if (ch === '\r' && i + 1 < str.length && str[i + 1] === '\n') i++;
+          } else {
+            current += ch;
+          }
+        }
+        if (current.trim()) result.push(current);
+        return result;
+      };
+      
+      const lines = splitLinesRespectQuotes(text);
       if (lines.length < 2) { alert('File is empty'); return; }
       // Auto-detect delimiter: tab or comma
       const firstLine = lines[0];
@@ -873,8 +905,8 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
         const phoneIdx = findCol(['phone']);
         const givingIdx = findCol(['giving type']);
         const memoIdx = findCol(['memo / note','memo','note']);
-        const txDateIdx = findCol(['transaction date']);
-        const depDateIdx = findCol(['deposit date']);
+        const txDateIdx = findCol(['transaction date','trans date','date','gift date']);
+        const depDateIdx = findCol(['deposit date','disbursement date','bank deposit date']);
         const methodIdx = findCol(['payment method']);
         const refundIdx = findCol(['refund / remove','refund','remove']);
 
