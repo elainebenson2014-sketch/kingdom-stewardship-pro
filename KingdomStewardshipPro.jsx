@@ -329,6 +329,42 @@ function GlobalStyles() {
       input:focus, select:focus, textarea:focus { border-color:${GOLD}; }
       h1,h2,h3,h4 { font-family:Georgia,Lora,serif; color:${NAVY}; }
 
+      /* ===== MOBILE NAV (hidden on desktop) ===== */
+      .ksp-mobile-bar { display:none; }
+      .ksp-backdrop { display:none; }
+      .ksp-close { display:none; }
+
+      /* ===== MOBILE RESPONSIVE ===== */
+      @media (max-width: 768px) {
+        .ksp-sidebar {
+          position: fixed !important; top:0; left:0; bottom:0; z-index:1000;
+          transform: translateX(-100%); transition: transform 0.25s ease;
+          width: 80% !important; max-width: 300px;
+        }
+        .ksp-sidebar.ksp-open { transform: translateX(0); }
+        .ksp-close {
+          display:block; position:absolute; top:10px; right:12px;
+          background:none; border:none; color:#fff; font-size:22px; cursor:pointer;
+        }
+        .ksp-backdrop {
+          display:block; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:999;
+        }
+        .ksp-mobile-bar {
+          display:flex; align-items:center; gap:12px;
+          position:sticky; top:0; z-index:90;
+          background:${NAVY}; color:#fff; padding:10px 14px;
+        }
+        .ksp-menu-btn {
+          background:rgba(255,255,255,0.12); color:#fff; border:none;
+          border-radius:8px; padding:9px 13px; font-size:15px; font-weight:600; cursor:pointer;
+        }
+        .ksp-main { padding:1rem !important; }
+        /* Stacked, tappable forms and inputs */
+        .ksp-main input, .ksp-main select, .ksp-main textarea { font-size:16px !important; }
+        /* Wide tables scroll instead of crushing */
+        .ksp-main table { display:block; overflow-x:auto; white-space:nowrap; }
+      }
+
       /* ===== PRINT STYLES ===== */
       @media print {
         body { background: #fff !important; }
@@ -593,6 +629,7 @@ function OnboardingPage({ user, onComplete }) {
 // ============ DASHBOARD ============
 function Dashboard({ user, onLogout }) {
   const [tab, setTab] = useState('overview');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [orgType, setOrgType] = useState('church');
   const [orgName, setOrgName] = useState('My Organization');
   const [transactions, setTransactions] = useState([]);
@@ -648,8 +685,18 @@ function Dashboard({ user, onLogout }) {
 
   return (
     <div style={{ display:'flex', minHeight:'100vh' }}>
+      {/* Mobile top bar with hamburger (only shows on small screens) */}
+      <div className="ksp-mobile-bar">
+        <button className="ksp-menu-btn" onClick={()=>setMobileMenuOpen(true)} aria-label="Open menu">☰ Menu</button>
+        <span style={{ fontWeight:600 }}>👑 {orgName}</span>
+      </div>
+
+      {/* Backdrop */}
+      {mobileMenuOpen && <div className="ksp-backdrop" onClick={()=>setMobileMenuOpen(false)}></div>}
+
       {/* Sidebar */}
-      <aside style={{ width:240, background: NAVY, color:'#fff', padding:'1.5rem 1rem', flexShrink:0 }}>
+      <aside className={`ksp-sidebar ${mobileMenuOpen ? 'ksp-open' : ''}`} style={{ width:240, background: NAVY, color:'#fff', padding:'1.5rem 1rem', flexShrink:0 }}>
+        <button className="ksp-close" onClick={()=>setMobileMenuOpen(false)} aria-label="Close menu">✕</button>
         <div style={{ marginBottom:'2rem' }}>
           <div style={{ fontSize:'0.8rem', color: GOLD, fontWeight:700, letterSpacing:'0.05em' }}>👑 KS PRO</div>
           <div style={{ fontSize:'1rem', fontWeight:600, marginTop:4, color: '#ffffff' }}>{orgName}</div>
@@ -669,7 +716,7 @@ function Dashboard({ user, onLogout }) {
             { id:'statements', icon:'📃', label:'Statements' },
             { id:'settings', icon:'⚙️', label:'Settings' },
           ].map(item => (
-            <button key={item.id} onClick={()=>setTab(item.id)} style={{
+            <button key={item.id} onClick={()=>{ setTab(item.id); setMobileMenuOpen(false); }} style={{
               background: tab===item.id ? 'rgba(201,168,76,0.15)' : 'transparent',
               border:'none', color: tab===item.id ? GOLD : '#A8B5C8',
               padding:'10px 12px', borderRadius:8, fontSize:'0.9rem',
@@ -686,7 +733,7 @@ function Dashboard({ user, onLogout }) {
       </aside>
 
       {/* Main */}
-      <main style={{ flex:1, padding:'2rem', overflow:'auto' }}>
+      <main className="ksp-main" style={{ flex:1, padding:'2rem', overflow:'auto' }}>
         {tab === 'overview' && <OverviewTab transactions={transactions} donors={donors} funds={funds} orgConfig={orgConfig} setTab={setTab} />}
         {tab === 'transactions' && <TransactionsTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} setDonors={setDonors} vendors={vendors} setVendors={setVendors} funds={funds} orgConfig={orgConfig} />}
         {tab === 'donors' && <DonorsTab user={user} donors={donors} setDonors={setDonors} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
