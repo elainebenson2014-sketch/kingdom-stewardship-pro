@@ -865,7 +865,58 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
     const reader = new FileReader();
     reader.onload = ev => {
       const text = ev.target.result;
-      
+
+      // ===== OFX / QFX BANK FILE SUPPORT =====
+      // Many banks (especially credit unions and community banks) only offer
+      // downloads in OFX/QFX ("Quicken") or Money format, not CSV. These are
+      // tag-based files, not spreadsheets. Detect and parse them directly so
+      // the user can upload the raw file with no conversion.
+      if (/<OFX>|<STMTTRN>/i.test(text)) {
+        const tagVal = (block, name) => {
+          const m = block.match(new RegExp('<' + name + '>([^<\\r\\n]*)', 'i'));
+          return m ? m[1].trim() : '';
+        };
+        const blocks = text.split(/<STMTTRN>/i).slice(1);
+        const ofxParsed = blocks.map((b, idx) => {
+          const dt = (tagVal(b, 'DTPOSTED') || '').replace(/[^0-9]/g, '').slice(0, 8);
+          let date = '';
+          if (dt.length === 8) date = `${dt.slice(0,4)}-${dt.slice(4,6)}-${dt.slice(6,8)}`;
+          else date = new Date().toISOString().slice(0, 10);
+          const rawAmt = parseFloat(tagVal(b, 'TRNAMT')) || 0;
+          if (rawAmt === 0) return null;
+          const amt = Math.abs(rawAmt);
+          const txType = rawAmt >= 0 ? 'income' : 'expense';
+          const name = tagVal(b, 'NAME') || 'Bank transaction';
+          const memo = tagVal(b, 'MEMO');
+          const desc = (name + (memo ? ' — ' + memo : '')).slice(0, 500);
+          const cat = txType === 'income' ? guessIncomeCategory(desc, orgConfig.id) : guessExpenseCategory(desc);
+          const validCats = txType === 'income' ? orgConfig.incomeCategories : orgConfig.expenseCategories;
+          const chosenCat = validCats.includes(cat) ? cat : validCats[0];
+          // Stable ID from the bank's FITID when present, else date+amount+desc
+          const fitid = (tagVal(b, 'FITID') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 30);
+          const stableKey = fitid || (date + '_' + amt.toFixed(2) + '_' + txType + '_' + desc.slice(0, 60));
+          let hash = 0;
+          for (let i = 0; i < stableKey.length; i++) { hash = ((hash << 5) - hash) + stableKey.charCodeAt(i); hash = hash & hash; }
+          return {
+            id: 'ofx_' + Math.abs(hash).toString(36) + '_' + (idx % 1000),
+            date, description: desc, amount: amt, type: txType,
+            category: chosenCat, donor_id: '', donorName: '',
+            include: true,
+          };
+        }).filter(r => r !== null);
+
+        if (ofxParsed.length === 0) {
+          alert('This looks like a bank (OFX/Quicken) file, but no transactions were found in it.');
+          e.target.value = '';
+          return;
+        }
+        alert(`🏦 Bank file (OFX/Quicken) detected! Found ${ofxParsed.length} transactions. Review them before importing.`);
+        setImportRows(ofxParsed);
+        setShowImport(true);
+        e.target.value = '';
+        return;
+      }
+
       // Parse CSV/TSV properly, respecting quoted multi-line fields
       // This handles memos like "Tithes 400\nBldg 50" without breaking row alignment
       const splitLinesRespectQuotes = (str) => {
@@ -897,8 +948,26 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
         return result;
       };
       
-      const lines = splitLinesRespectQuotes(text);
+      let lines = splitLinesRespectQuotes(text);
       if (lines.length < 2) { alert('File is empty'); return; }
+
+      // ===== SKIP LEADING METADATA ROWS =====
+      // Some banks (e.g. Coastal) export a few info rows — "Account Name",
+      // "Account Number", "Date Range" — BEFORE the real column headers.
+      // Find the first row that actually looks like a header and start there,
+      // so the user can upload the raw bank file without hand-editing it.
+      const looksLikeHeader = (line) => {
+        const lc = line.toLowerCase();
+        const hasDate = /\bdate\b|posting date|transaction date|trans\. date|donation date|deposit date|disbursement date/.test(lc);
+        const hasCol = /(description|desc|payee|merchant|memo|amount|debit|credit|deposit|withdrawal|giving type|envelope|donor|details|transaction number|check number)/.test(lc);
+        return hasDate && hasCol;
+      };
+      let headerStart = 0;
+      for (let i = 0; i < Math.min(lines.length, 15); i++) {
+        if (looksLikeHeader(lines[i])) { headerStart = i; break; }
+      }
+      if (headerStart > 0) lines = lines.slice(headerStart);
+      if (lines.length < 2) { alert('Could not find transaction rows in this file.'); return; }
       // Auto-detect delimiter: tab or comma
       const firstLine = lines[0];
       const tabCount = (firstLine.match(/\t/g) || []).length;
@@ -1737,7 +1806,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
           }}>📤 Export CSV</button>
           <label className="btn btn-outline" style={{ cursor:'pointer', background:'#F0F8FF', borderColor:'#2563EB', color:'#2563EB' }} title="Upload Chase, BofA, Wells Fargo, or other bank CSV — flows to P&L">
             🏦 Upload Bank
-            <input type="file" accept=".csv" style={{ display:'none' }} onChange={(e) => { setImportSourceType('bank'); handleCSVUpload(e); }} />
+            <input type="file" accept=".csv,.ofx,.qfx,.txt" style={{ display:'none' }} onChange={(e) => { setImportSourceType('bank'); handleCSVUpload(e); }} />
           </label>
           <label className="btn btn-outline" style={{ cursor:'pointer', background:'#FFF8E1', borderColor:'#C9A84C', color:'#7A5C10' }} title="Upload Tithely, Givelify, Pushpay — for donor detail only, excluded from P&L">
             💝 Upload Giving
