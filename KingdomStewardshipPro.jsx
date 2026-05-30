@@ -329,39 +329,9 @@ function GlobalStyles() {
       input:focus, select:focus, textarea:focus { border-color:${GOLD}; }
       h1,h2,h3,h4 { font-family:Georgia,Lora,serif; color:${NAVY}; }
 
-      /* ===== MOBILE NAV (hidden on desktop) ===== */
-      .ksp-mobile-bar { display:none; }
-      .ksp-backdrop { display:none; }
-      .ksp-close { display:none; }
-
-      /* ===== MOBILE RESPONSIVE ===== */
+      /* ===== MOBILE RESPONSIVE (layout handled inline via isMobile) ===== */
       @media (max-width: 768px) {
-        .ksp-sidebar {
-          position: fixed !important; top:0; left:0; bottom:0; z-index:1000;
-          transform: translateX(-100%); transition: transform 0.25s ease;
-          width: 80% !important; max-width: 300px;
-        }
-        .ksp-sidebar.ksp-open { transform: translateX(0); }
-        .ksp-close {
-          display:block; position:absolute; top:10px; right:12px;
-          background:none; border:none; color:#fff; font-size:22px; cursor:pointer;
-        }
-        .ksp-backdrop {
-          display:block; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:999;
-        }
-        .ksp-mobile-bar {
-          display:flex; align-items:center; gap:12px;
-          position:sticky; top:0; z-index:90;
-          background:${NAVY}; color:#fff; padding:10px 14px;
-        }
-        .ksp-menu-btn {
-          background:rgba(255,255,255,0.12); color:#fff; border:none;
-          border-radius:8px; padding:9px 13px; font-size:15px; font-weight:600; cursor:pointer;
-        }
-        .ksp-main { padding:1rem !important; }
-        /* Stacked, tappable forms and inputs */
         .ksp-main input, .ksp-main select, .ksp-main textarea { font-size:16px !important; }
-        /* Wide tables scroll instead of crushing */
         .ksp-main table { display:block; overflow-x:auto; white-space:nowrap; }
       }
 
@@ -630,6 +600,13 @@ function OnboardingPage({ user, onComplete }) {
 function Dashboard({ user, onLogout }) {
   const [tab, setTab] = useState('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth <= 768);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', onResize);
+    onResize();
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [orgType, setOrgType] = useState('church');
   const [orgName, setOrgName] = useState('My Organization');
   const [transactions, setTransactions] = useState([]);
@@ -684,19 +661,34 @@ function Dashboard({ user, onLogout }) {
   };
 
   return (
-    <div style={{ display:'flex', minHeight:'100vh' }}>
-      {/* Mobile top bar with hamburger (only shows on small screens) */}
-      <div className="ksp-mobile-bar">
-        <button className="ksp-menu-btn" onClick={()=>setMobileMenuOpen(true)} aria-label="Open menu">☰ Menu</button>
-        <span style={{ fontWeight:600 }}>👑 {orgName}</span>
-      </div>
+    <div style={{ display: isMobile ? 'block' : 'flex', minHeight:'100vh' }}>
+      {/* Mobile top bar with hamburger */}
+      {isMobile && (
+        <div style={{ display:'flex', alignItems:'center', gap:12, position:'sticky', top:0, zIndex:90, background: NAVY, color:'#fff', padding:'10px 14px' }}>
+          <button onClick={()=>setMobileMenuOpen(true)} aria-label="Open menu" style={{ background:'rgba(255,255,255,0.12)', color:'#fff', border:'none', borderRadius:8, padding:'9px 13px', fontSize:15, fontWeight:600, cursor:'pointer' }}>☰ Menu</button>
+          <span style={{ fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>👑 {orgName}</span>
+        </div>
+      )}
 
       {/* Backdrop */}
-      {mobileMenuOpen && <div className="ksp-backdrop" onClick={()=>setMobileMenuOpen(false)}></div>}
+      {isMobile && mobileMenuOpen && (
+        <div onClick={()=>setMobileMenuOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:999 }}></div>
+      )}
 
-      {/* Sidebar */}
-      <aside className={`ksp-sidebar ${mobileMenuOpen ? 'ksp-open' : ''}`} style={{ width:240, background: NAVY, color:'#fff', padding:'1.5rem 1rem', flexShrink:0 }}>
-        <button className="ksp-close" onClick={()=>setMobileMenuOpen(false)} aria-label="Close menu">✕</button>
+      {/* Sidebar — fixed slide-in drawer on mobile, static column on desktop */}
+      <aside style={{
+        width: isMobile ? '80%' : 240,
+        maxWidth: isMobile ? 300 : 'none',
+        background: NAVY, color:'#fff', padding:'1.5rem 1rem', flexShrink:0,
+        ...(isMobile ? {
+          position:'fixed', top:0, left:0, bottom:0, zIndex:1000,
+          transform: mobileMenuOpen ? 'translateX(0)' : 'translateX(-100%)',
+          transition:'transform 0.25s ease', overflowY:'auto',
+        } : {}),
+      }}>
+        {isMobile && (
+          <button onClick={()=>setMobileMenuOpen(false)} aria-label="Close menu" style={{ position:'absolute', top:10, right:12, background:'none', border:'none', color:'#fff', fontSize:22, cursor:'pointer' }}>✕</button>
+        )}
         <div style={{ marginBottom:'2rem' }}>
           <div style={{ fontSize:'0.8rem', color: GOLD, fontWeight:700, letterSpacing:'0.05em' }}>👑 KS PRO</div>
           <div style={{ fontSize:'1rem', fontWeight:600, marginTop:4, color: '#ffffff' }}>{orgName}</div>
@@ -727,13 +719,13 @@ function Dashboard({ user, onLogout }) {
           ))}
         </nav>
 
-        <div style={{ marginTop:'auto', paddingTop:'2rem' }}>
+        <div style={{ marginTop: isMobile ? '2rem' : 'auto', paddingTop:'2rem' }}>
           <button onClick={onLogout} style={{ width:'100%', background:'transparent', border:'1px solid rgba(255,255,255,0.2)', color:'#A8B5C8', padding:'8px', borderRadius:8, fontSize:'0.85rem', cursor:'pointer' }}>Sign Out</button>
         </div>
       </aside>
 
       {/* Main */}
-      <main className="ksp-main" style={{ flex:1, padding:'2rem', overflow:'auto' }}>
+      <main className="ksp-main" style={{ flex:1, padding: isMobile ? '1rem' : '2rem', overflow:'auto', width: isMobile ? '100%' : 'auto' }}>
         {tab === 'overview' && <OverviewTab transactions={transactions} donors={donors} funds={funds} orgConfig={orgConfig} setTab={setTab} />}
         {tab === 'transactions' && <TransactionsTab user={user} transactions={transactions} setTransactions={setTransactions} donors={donors} setDonors={setDonors} vendors={vendors} setVendors={setVendors} funds={funds} orgConfig={orgConfig} />}
         {tab === 'donors' && <DonorsTab user={user} donors={donors} setDonors={setDonors} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
