@@ -1986,6 +1986,33 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
           <div style={{ background:'#FAFAF6', padding:8, borderRadius:8, marginBottom:'1rem', fontSize:'0.78rem', color: TXT_LIGHT }}>
             💡 <strong>Supported banks:</strong> Chase · Bank of America · Wells Fargo · Capital One · Citi · US Bank · PNC · TD Bank · Truist · Navy Federal · Discover · American Express · Ally · plus most others. Just download CSV from your bank and upload here.
           </div>
+          {(() => {
+            // Guardrail: flag large generic deposits that may be batches of
+            // gifts already (or about to be) recorded individually, to prevent
+            // double-counting giving totals.
+            const flagged = importRows.filter(r =>
+              r.include && r.type === 'income' &&
+              !EXCLUDED_FROM_PL.includes(r.category) &&
+              parseFloat(r.amount) >= 500 &&
+              /deposit|transfer|zelle|cash app|venmo|paypal|batch/i.test(r.description || '')
+            );
+            if (flagged.length === 0) return null;
+            return (
+              <div style={{ background:'#FFF8E1', border:`1px solid ${GOLD}`, borderRadius:8, padding:'12px 14px', marginBottom:'1rem', fontSize:'0.82rem', color:'#6B5417' }}>
+                ⚠️ <strong>Possible double-counting:</strong> {flagged.length} large deposit{flagged.length>1?'s':''} look like {flagged.length>1?'they may be batches':'it may be a batch'} of gifts.
+                If you record the individual gifts separately (⚡ Bulk Entry), mark these as <strong>“Transfer In”</strong> so giving isn't counted twice. Use the ⚠️ button on those rows to fix them instantly.
+                <div style={{ marginTop:8 }}>
+                  <button className="btn btn-outline" style={{ fontSize:'0.78rem', padding:'4px 10px' }}
+                    onClick={() => setImportRows(p => p.map(r => (
+                      r.include && r.type==='income' && !EXCLUDED_FROM_PL.includes(r.category) &&
+                      parseFloat(r.amount) >= 500 && /deposit|transfer|zelle|cash app|venmo|paypal|batch/i.test(r.description||'')
+                    ) ? {...r, category:'Transfer In'} : r))}>
+                    Mark all {flagged.length} as “Transfer In”
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
           <div style={{ maxHeight:400, overflow:'auto', marginBottom:'1rem' }}>
             <table style={{ width:'100%', fontSize:'0.82rem' }}>
               <thead><tr style={{ background: CREAM, position:'sticky', top:0 }}>
@@ -2018,6 +2045,11 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
                       <select value={r.category} onChange={e=>setImportRows(p=>p.map((x,j)=>j===i?{...x, category:e.target.value}:x))} style={{ fontSize:'0.78rem', padding:'2px 4px', maxWidth:140 }}>
                         {(r.type==='income' ? orgConfig.incomeCategories : orgConfig.expenseCategories).map(c => <option key={c}>{c}</option>)}
                       </select>
+                      {r.type==='income' && !EXCLUDED_FROM_PL.includes(r.category) && parseFloat(r.amount) >= 500 && /deposit|transfer|zelle|cash app|venmo|paypal|batch/i.test(r.description||'') && (
+                        <button title="Looks like a batch deposit — mark as Transfer In so giving isn't double-counted"
+                          onClick={()=>setImportRows(p=>p.map((x,j)=>j===i?{...x, category:'Transfer In'}:x))}
+                          style={{ marginLeft:4, background:'#FFF8E1', border:`1px solid ${GOLD}`, borderRadius:5, cursor:'pointer', fontSize:'0.7rem', padding:'1px 4px' }}>⚠️ Transfer In</button>
+                      )}
                     </td>
                     <td style={{ padding:6 }}>
                       <select value={r.donor_id} onChange={e=>setImportRows(p=>p.map((x,j)=>j===i?{...x, donor_id:e.target.value}:x))} style={{ fontSize:'0.78rem', padding:'2px 4px', maxWidth:120 }}>
