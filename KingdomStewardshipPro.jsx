@@ -255,6 +255,37 @@ const guessExpenseCategory = (desc) => {
   return 'Other Expenses';
 };
 
+// ── Category memory ─────────────────────────────────────────────────
+// Remembers the category you assigned to a description and reapplies it on the
+// next import (mirrors the KWB import-memory behavior). It's derived from your
+// existing transactions, so it self-updates every time you categorize anything —
+// no separate store to maintain.
+const normDesc = (desc) => {
+  let d = (desc || '').toLowerCase().trim();
+  // Trim trailing dates / check numbers / amounts: cut at the first digit at index >= 3.
+  for (let i = 3; i < d.length; i++) {
+    if (d[i] >= '0' && d[i] <= '9') { d = d.slice(0, i); break; }
+  }
+  // Key on the first three words.
+  return d.split(/\s+/).filter(Boolean).slice(0, 3).join(' ').trim();
+};
+
+const buildCategoryMemory = (transactions) => {
+  const m = {};
+  for (const t of (transactions || [])) {
+    const key = normDesc(t.description);
+    if (!key || !t.category) continue;
+    m[key] = { category: t.category, type: t.type }; // most recent assignment wins
+  }
+  return m;
+};
+
+const rememberedCategory = (memory, desc, txType, validCats) => {
+  const m = memory[normDesc(desc)];
+  if (m && m.type === txType && validCats.includes(m.category)) return m.category;
+  return null;
+};
+
 const ORG_TYPES = [
   { id: 'church', label: '⛪ Church / Ministry', incomeCategories: INCOME_CATEGORIES_CHURCH, hasFunds: true, hasDonors: true, donorLabel: 'Donors / Members', incomeLabel: 'Giving & Income', termsFor: { income: 'Giving & Income', expense: 'Operating Expenses', net: 'Net Income' } },
   { id: 'nonprofit', label: '🌟 Nonprofit / Foundation', incomeCategories: INCOME_CATEGORIES_NONPROFIT, hasFunds: true, hasDonors: true, donorLabel: 'Donors', incomeLabel: 'Revenue & Donations', termsFor: { income: 'Revenue', expense: 'Operating Expenses', net: 'Change in Net Assets' } },
@@ -865,6 +896,7 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
     const reader = new FileReader();
     reader.onload = ev => {
       const text = ev.target.result;
+      const categoryMemory = buildCategoryMemory(transactions);
 
       // ===== OFX / QFX BANK FILE SUPPORT =====
       // Many banks (especially credit unions and community banks) only offer
@@ -889,8 +921,9 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
           const name = tagVal(b, 'NAME') || 'Bank transaction';
           const memo = tagVal(b, 'MEMO');
           const desc = (name + (memo ? ' — ' + memo : '')).slice(0, 500);
-          const cat = txType === 'income' ? guessIncomeCategory(desc, orgConfig.id) : guessExpenseCategory(desc);
           const validCats = txType === 'income' ? orgConfig.incomeCategories : orgConfig.expenseCategories;
+          const remembered = rememberedCategory(categoryMemory, desc, txType, validCats);
+          const cat = remembered || (txType === 'income' ? guessIncomeCategory(desc, orgConfig.id) : guessExpenseCategory(desc));
           const chosenCat = validCats.includes(cat) ? cat : validCats[0];
           // Stable ID from the bank's FITID when present, else date+amount+desc
           const fitid = (tagVal(b, 'FITID') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 30);
@@ -1444,7 +1477,8 @@ function TransactionsTab({ user, transactions, setTransactions, donors, setDonor
             chosenCat = validCats.find(vc => vc.toLowerCase() === cat.toLowerCase()) || '';
           }
           if (!chosenCat) {
-            chosenCat = txType === 'income' ? guessIncomeCategory(desc, orgConfig.id) : guessExpenseCategory(desc);
+            chosenCat = rememberedCategory(categoryMemory, desc, txType, validCats)
+              || (txType === 'income' ? guessIncomeCategory(desc, orgConfig.id) : guessExpenseCategory(desc));
             if (!validCats.includes(chosenCat)) chosenCat = validCats[0];
           }
           let matchedDonorId = '';
