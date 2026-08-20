@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 // ============ CONFIG ============
 // Matches Kingdom Stewardship Pro's connection: hardcoded creds + CDN loader.
 const SUPABASE_URL = "https://lmugkdwjijhmjhlqnmyk.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtdWdrZHdqaWpobWpobHFubXlrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzMTk1NzgsImV4cCI6MjA5Mzg5NTU3OH0.t0dAM7qV9Q3tHV1O7mjpPyJ03jxdzxrqJOiQLS2Yb5Q";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtdWdrZHdqaWpobWpobHFubXlrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzMTk1NzgsImV4cCI6MjA5Mzg5NTU3OH0.t0dAM7qV9Q3tHV1O7mjpPyJ03jxdzxrqJOiQLS2Yb5Q";
 
 let supabaseInstance = null;
 const getSupabase = async () => {
@@ -15,7 +15,7 @@ const getSupabase = async () => {
     document.head.appendChild(script);
     await new Promise(resolve => script.onload = resolve);
   }
-  supabaseInstance = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  supabaseInstance = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
   return supabaseInstance;
 };
 
@@ -27,8 +27,8 @@ const SAGE = '#EBF6F1';
 const TXT_LIGHT = '#7A8BA8';
 const BORDER = '#E2EAF2';
 
-const fmtMoney = (n) => n == null || n === '' ? '\u2014' : '$' + (parseFloat(n)||0).toLocaleString('en-US', { maximumFractionDigits:0 });
-const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '\u2014';
+const fmtMoney = (n) => n == null || n === '' ? '—' : '$' + (parseFloat(n)||0).toLocaleString('en-US', { maximumFractionDigits:0 });
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
 
 // ============ GRANTS TAB ============
 export default function GrantsTab({ user, orgName }) {
@@ -139,7 +139,7 @@ export default function GrantsTab({ user, orgName }) {
         setFound(data.grants);
       }
     } catch(e) {
-      setFindError('Couldn\u2019t reach the grant finder. If this just deployed, give it a minute and retry.');
+      setFindError('Could not reach the grant finder. If this just deployed, give it a minute and retry.');
     }
     setFinding(false);
   };
@@ -170,11 +170,11 @@ export default function GrantsTab({ user, orgName }) {
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', flexWrap:'wrap', gap:8 }}>
         <div>
-          <h2 style={{ fontSize:'1.6rem' }}>\ud83d\udccb Funding &amp; Grants</h2>
+          <h2 style={{ fontSize:'1.6rem' }}>📋 Funding &amp; Grants</h2>
           <p style={{ color: TXT_LIGHT, fontSize:'0.9rem', marginTop:4 }}>Grants your ministry may qualify for. Find, filter, then pursue.</p>
         </div>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-          <button className="btn btn-gold" onClick={()=>{ setShowFind(true); setFound(null); setFindError(null); }}>\ud83d\udd0e Find Grants</button>
+          <button className="btn btn-gold" onClick={()=>{ setShowFind(true); setFound(null); setFindError(null); }}>🔎 Find Grants</button>
           <button className="btn btn-navy" onClick={()=>setShowAdd(true)}>+ Add Grant</button>
         </div>
       </div>
@@ -182,8 +182,8 @@ export default function GrantsTab({ user, orgName }) {
       {showFind && (
         <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${GOLD}` }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
-            <h3>\ud83d\udd0e Find Grants</h3>
-            <button onClick={()=>setShowFind(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color: TXT_LIGHT }}>\u00d7</button>
+            <h3>🔎 Find Grants</h3>
+            <button onClick={()=>setShowFind(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color: TXT_LIGHT }}>×</button>
           </div>
           <p style={{ fontSize:'0.85rem', color: TXT_LIGHT, marginBottom:'1rem' }}>
             Claude searches the web for real, current grants that fit your ministry, then lists them here for you to review.
@@ -214,12 +214,12 @@ export default function GrantsTab({ user, orgName }) {
           </div>
 
           <button className="btn btn-navy" onClick={runFind} disabled={finding}>
-            {finding ? 'Searching the web\u2026' : '\ud83d\udd0e Search for grants'}
+            {finding ? 'Searching the web...' : '🔎 Search for grants'}
           </button>
 
           {finding && (
             <p style={{ fontSize:'0.82rem', color: TXT_LIGHT, marginTop:12 }}>
-              This can take 20\u201340 seconds while Claude searches. Hang tight.
+              This can take 20-40 seconds while Claude searches. Hang tight.
             </p>
           )}
 
@@ -232,7 +232,7 @@ export default function GrantsTab({ user, orgName }) {
           {found && found.length > 0 && (
             <div style={{ marginTop:'1.25rem' }}>
               <div style={{ padding:'10px 14px', background:'#FBF0D9', borderRadius:8, color:'#8A5F13', fontSize:'0.82rem', marginBottom:'1rem' }}>
-                \u26a0\ufe0f AI-suggested \u2014 confirm each grant on the funder\u2019s site before applying. Details can change.
+                ⚠️ AI-suggested — confirm each grant on the funder's site before applying. Details can change.
               </div>
               <div style={{ display:'grid', gap:'0.75rem' }}>
                 {found.map((g, idx) => (
@@ -247,7 +247,7 @@ export default function GrantsTab({ user, orgName }) {
                           {g.focus_area && <span><strong>Focus:</strong> {g.focus_area}</span>}
                         </div>
                         {g.eligibility && <div style={{ fontSize:'0.8rem', color: TXT_LIGHT, marginTop:6 }}>{g.eligibility}</div>}
-                        {g.link && <a href={g.link} target="_blank" rel="noreferrer" style={{ fontSize:'0.8rem', color: FOREST, display:'inline-block', marginTop:6 }}>Open funder page \u2197</a>}
+                        {g.link && <a href={g.link} target="_blank" rel="noreferrer" style={{ fontSize:'0.8rem', color: FOREST, display:'inline-block', marginTop:6 }}>Open funder page ↗</a>}
                       </div>
                       <button className="btn btn-gold" style={{ whiteSpace:'nowrap', fontSize:'0.82rem', padding:'8px 12px' }} onClick={()=>acceptSuggestion(g, idx)}>+ Add</button>
                     </div>
@@ -277,14 +277,14 @@ export default function GrantsTab({ user, orgName }) {
           <div style={{ marginBottom:'0.75rem' }}><label style={labelStyle}>Who qualifies</label><input style={{ width:'100%' }} value={f.eligibility} onChange={e=>setF({...f, eligibility:e.target.value})} placeholder="e.g., 501(c)(3) churches in Harris County" /></div>
           <div style={{ marginBottom:'1rem' }}><label style={labelStyle}>Application link</label><input style={{ width:'100%' }} value={f.link} onChange={e=>setF({...f, link:e.target.value})} placeholder="https://..." /></div>
           <div style={{ display:'flex', gap:8 }}>
-            <button className="btn btn-navy" onClick={handleAdd}>\u2713 Save Grant</button>
+            <button className="btn btn-navy" onClick={handleAdd}>✓ Save Grant</button>
             <button className="btn btn-outline" onClick={()=>setShowAdd(false)}>Cancel</button>
           </div>
         </div>
       )}
 
       <div className="card card-p" style={{ marginBottom:'1.5rem' }}>
-        <input type="text" placeholder="\ud83d\udd0d Search by name, funder, focus, or who qualifies..." value={search} onChange={e=>setSearch(e.target.value)} style={{ width:'100%', marginBottom:12 }} />
+        <input type="text" placeholder="Search by name, funder, focus, or who qualifies..." value={search} onChange={e=>setSearch(e.target.value)} style={{ width:'100%', marginBottom:12 }} />
         <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
           <div><label style={{ fontSize:'0.72rem', fontWeight:700, color: TXT_LIGHT, textTransform:'uppercase', display:'block', marginBottom:4 }}>Focus</label>
             <select value={focus} onChange={e=>setFocus(e.target.value)}>{focusAreas.map(a => <option key={a} value={a}>{a === 'all' ? 'All focus areas' : a}</option>)}</select>
@@ -298,20 +298,20 @@ export default function GrantsTab({ user, orgName }) {
         </div>
       </div>
 
-      {loading && <div className="card card-p" style={{ textAlign:'center', color: TXT_LIGHT }}>Loading grants\u2026</div>}
+      {loading && <div className="card card-p" style={{ textAlign:'center', color: TXT_LIGHT }}>Loading grants...</div>}
 
       {error && (
         <div className="card card-p" style={{ color:'#B53232', borderLeft:'4px solid #B53232' }}>
-          Couldn\u2019t load grants: {error}. Check that the grants table exists in Supabase, then reload.
+          Could not load grants: {error}. Check that the grants table exists in Supabase, then reload.
         </div>
       )}
 
       {!loading && !error && grants.length === 0 && (
         <div className="card card-p" style={{ textAlign:'center', padding:'3rem' }}>
-          <div style={{ fontSize:'2.5rem', marginBottom:8 }}>\ud83d\udccb</div>
+          <div style={{ fontSize:'2.5rem', marginBottom:8 }}>📋</div>
           <h3 style={{ marginBottom:6 }}>No grants yet</h3>
           <p style={{ color: TXT_LIGHT, marginBottom:'1.5rem' }}>Use Find Grants to search the web, or add one by hand.</p>
-          <button className="btn btn-gold" onClick={()=>setShowFind(true)}>\ud83d\udd0e Find Grants</button>
+          <button className="btn btn-gold" onClick={()=>setShowFind(true)}>🔎 Find Grants</button>
         </div>
       )}
 
@@ -340,7 +340,7 @@ export default function GrantsTab({ user, orgName }) {
             )}
             <div style={{ marginTop:'auto', display:'flex', gap:8, alignItems:'center' }}>
               {g.link && <a href={g.link} target="_blank" rel="noreferrer" className="btn btn-outline" style={{ fontSize:'0.82rem', padding:'8px 14px', textDecoration:'none' }}>View grant</a>}
-              <button onClick={()=>handleDelete(g.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, color: TXT_LIGHT, marginLeft:'auto' }}>\ud83d\uddd1</button>
+              <button onClick={()=>handleDelete(g.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, color: TXT_LIGHT, marginLeft:'auto' }}>🗑</button>
             </div>
           </div>
         ))}
