@@ -91,14 +91,15 @@ export default function GrantsTab({ user, orgName }) {
   }, [grants, search, focus, status, sortBy]);
 
   const insertGrant = async (row) => {
-    const full = { id: 'grant_' + Date.now() + '_' + Math.floor(Math.random()*1000), status:'open', ...row };
-    setGrants(p => [...p, full]);
+    // Do NOT set id here — the grants table generates a UUID automatically.
+    const payload = { status:'open', ...row };
     try {
       const sb = await getSupabase();
-      const { error } = await sb.from('grants').insert(full);
-      if (error) alert('Save error: ' + error.message);
-    } catch(e) { alert('Save failed: ' + (e.message || 'unknown')); }
-    return full;
+      const { data, error } = await sb.from('grants').insert(payload).select().single();
+      if (error) { alert('Save error: ' + error.message); return null; }
+      setGrants(p => [...p, data]);
+      return data;
+    } catch(e) { alert('Save failed: ' + (e.message || 'unknown')); return null; }
   };
 
   const handleAdd = async () => {
