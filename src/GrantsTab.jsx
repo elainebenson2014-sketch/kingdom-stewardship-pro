@@ -237,6 +237,28 @@ export default function GrantsTab({ user, orgName }) {
     return s;
   }, [apps, grantById]);
 
+  const reminders = useMemo(() => {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const DAY = 86400000;
+    const items = [];
+    apps.forEach(a => {
+      const g = grantById[a.grant_id];
+      const st = a.submission_status || 'draft';
+      if (g && g.deadline && st === 'draft') {
+        const d = new Date(g.deadline); d.setHours(0,0,0,0);
+        const days = Math.round((d - today)/DAY);
+        if (days >= 0 && days <= 30) items.push({ kind:'deadline', text:`"${g.name}" is due ${fmtDate(g.deadline)} — ${days===0?'today':days+' day'+(days===1?'':'s')+' left'}, still in draft.` });
+        else if (days < 0) items.push({ kind:'overdue', text:`"${g.name}" deadline passed (${fmtDate(g.deadline)}) and it's still in draft.` });
+      }
+      if (st === 'submitted' && a.submitted_date && !(a.decision && a.decision.trim())) {
+        const d = new Date(a.submitted_date); d.setHours(0,0,0,0);
+        const days = Math.round((today - d)/DAY);
+        if (days >= 45) items.push({ kind:'stale', text:`"${g ? g.name : 'Application'}" submitted ${days} days ago with no decision logged — time to follow up.` });
+      }
+    });
+    return items;
+  }, [apps, grantById]);
+
   const statusStyle = (s) => {
     if (s === 'rolling') return { background:'#FBF0D9', color:'#8A5F13' };
     if (s === 'closed') return { background:'#EFEAE6', color:'#7A6F68' };
@@ -386,6 +408,16 @@ export default function GrantsTab({ user, orgName }) {
       {/* ===== APPLICATIONS / TRACKING ===== */}
       {view === 'apps' && (
       <div>
+        {reminders.length > 0 && (
+          <div className="card card-p" style={{ marginBottom:'1.5rem', borderLeft:`4px solid ${GOLD}`, background:'#FFFBF0' }}>
+            <div style={{ fontWeight:700, color: NAVY, marginBottom:8 }}>🔔 Needs your attention</div>
+            <div style={{ display:'grid', gap:6 }}>
+              {reminders.map((r, i) => (
+                <div key={i} style={{ fontSize:'0.88rem', color: r.kind === 'overdue' ? '#9A2B2B' : '#7A5A13' }}>• {r.text}</div>
+              ))}
+            </div>
+          </div>
+        )}
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))', gap:'0.75rem', marginBottom:'1.5rem' }}>
           {[['Draft', stats.draft, '#7A6F58'], ['Submitted', stats.submitted, '#2A4A78'], ['Awarded', stats.awarded, FOREST], ['Declined', stats.declined, '#9A2B2B']].map(([lab, n, col]) => (
             <div key={lab} className="card card-p" style={{ textAlign:'center' }}>
