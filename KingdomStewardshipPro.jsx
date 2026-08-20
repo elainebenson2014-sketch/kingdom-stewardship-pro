@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import GrantsTab from './GrantsTab'; 
 
 // ============ CONFIG ============
 // IMPORTANT: Set up a NEW Supabase project for this app — separate from Kingdom Wealth Builders
@@ -737,6 +738,7 @@ function Dashboard({ user, onLogout }) {
             { id:'reports', icon:'📄', label:'Reports' },
             { id:'reconcile', icon:'🔍', label:'Reconcile' },
             { id:'statements', icon:'📃', label:'Statements' },
+            { id:'grants', icon:'📋', label:'Funding & Grants' },
             { id:'settings', icon:'⚙️', label:'Settings' },
           ].map(item => (
             <button key={item.id} onClick={()=>{ setTab(item.id); setMobileMenuOpen(false); }} style={{
@@ -766,6 +768,7 @@ function Dashboard({ user, onLogout }) {
         {tab === 'reports' && <ReportsTab transactions={transactions} donors={donors} vendors={vendors} funds={funds} orgConfig={orgConfig} orgName={orgName} />}
         {tab === 'reconcile' && <ReconcileTab user={user} transactions={transactions} setTransactions={setTransactions} orgConfig={orgConfig} />}
         {tab === 'statements' && <StatementsTab user={user} donors={donors} transactions={transactions} orgConfig={orgConfig} orgName={orgName} />}
+        {tab === 'grants' && <GrantsTab user={user} />}
         {tab === 'settings' && <SettingsTab user={user} orgName={orgName} setOrgName={setOrgName} orgType={orgType} setOrgType={setOrgType} customIncomeCats={customIncomeCats} setCustomIncomeCats={setCustomIncomeCats} customExpenseCats={customExpenseCats} setCustomExpenseCats={setCustomExpenseCats} />}
       </main>
     </div>
