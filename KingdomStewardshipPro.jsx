@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import GrantsTab from './GrantsTab'; 
+import GrantsTab from './src/GrantsTab';
 
 // ============ CONFIG ============
 // IMPORTANT: Set up a NEW Supabase project for this app — separate from Kingdom Wealth Builders
