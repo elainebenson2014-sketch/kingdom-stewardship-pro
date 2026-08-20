@@ -3674,7 +3674,7 @@ ${Object.keys(excludedByCategory).length > 0 ? `
           </div>
 
           {/* Net */}
-          <div style={{ display:'flex', justifyContent:'space-between', padding:'16px 0', marginTop:16, background: net>=0?SAGE:RED_PALE, padding:'14px 18px', borderRadius:8 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', marginTop:16, background: net>=0?SAGE:RED_PALE, padding:'14px 18px', borderRadius:8 }}>
             <span style={{ fontWeight:700, color: NAVY, fontSize:'1.05rem' }}>{orgConfig.termsFor.net}</span>
             <span style={{ fontWeight:700, color: net>=0?FOREST:RED, fontSize:'1.3rem', fontFamily:'Georgia,serif' }}>{fmt(net)}</span>
           </div>
